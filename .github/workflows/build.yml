@@ -1,0 +1,73 @@
+name: Build P4 Radio APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout kode
+        uses: actions/checkout@v4
+
+      - name: Sett opp JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Hent versjonsnummer
+        id: ver
+        run: |
+          VER=$(grep -oP 'versionName\s+"\K[^"]*' app/build.gradle)
+          CODE=$(grep -oP 'versionCode\s+\K[0-9]+' app/build.gradle)
+          echo "name=$VER" >> "$GITHUB_OUTPUT"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "Versjon: $VER (kode $CODE)"
+
+      - name: Bygg release APK
+        run: ./gradlew assembleRelease --no-daemon -Dorg.gradle.java.home="$JAVA_HOME"
+        env:
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
+      - name: Signer APK
+        run: |
+          # Finn nyeste tilgjengelige build-tools
+          BT=$(ls $ANDROID_SDK_ROOT/build-tools | sort -V | tail -1)
+          echo "Bruker build-tools: $BT"
+
+          # Lag signeringsnøkkel
+          keytool -genkeypair \
+            -keystore ci.keystore \
+            -alias p4radio \
+            -keyalg RSA -keysize 2048 \
+            -validity 10000 \
+            -storepass android \
+            -keypass android \
+            -dname "CN=P4Radio CI, O=P4Radio, C=NO" \
+            -noprompt
+
+          # Signer
+          $ANDROID_SDK_ROOT/build-tools/$BT/apksigner sign \
+            --ks ci.keystore \
+            --ks-pass pass:android \
+            --ks-key-alias p4radio \
+            --key-pass pass:android \
+            --out P4Radio-v${{ steps.ver.outputs.name }}.apk \
+            app/build/outputs/apk/release/app-release-unsigned.apk
+
+          echo "Signert APK: P4Radio-v${{ steps.ver.outputs.name }}.apk"
+          ls -lh P4Radio-v${{ steps.ver.outputs.name }}.apk
+        env:
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
+      - name: Last opp APK som artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: P4Radio-v${{ steps.ver.outputs.name }}-build${{ github.run_number }}
+          path: P4Radio-v${{ steps.ver.outputs.name }}.apk
+          retention-days: 30
