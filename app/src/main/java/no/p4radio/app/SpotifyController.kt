@@ -20,7 +20,7 @@ class SpotifyController {
 
     companion object {
         // 1. Gå til developer.spotify.com → Create App → kopier Client ID hit:
-        const val CLIENT_ID    = "DIN_CLIENT_ID_HER"
+        const val CLIENT_ID    = "8c204e7445654c499369b5090d2977bb"
         const val REDIRECT_URI = "no.radioapp.player://callback"
         // 2. Åpne Spotify → finn spillelisten → ⋮ → Del → Kopier Spotify-URI → lim inn her:
         const val PLAYLIST_URI = "spotify:playlist:DIN_SPILLELISTE_ID_HER"
