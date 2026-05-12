@@ -63,13 +63,10 @@ dependencies {
     // ExoPlayer for radio streaming
     implementation 'androidx.media3:media3-exoplayer:1.3.1'
     implementation 'androidx.media3:media3-common:1.3.1'
-
-    // Spotify App Remote SDK
-    // Last ned spotify-app-remote-release-0.8.0.aar fra:
-    // https://github.com/spotify/android-sdk/releases/tag/v0.8.0
     // og legg filen i app/libs/
-    implementation files('libs/spotify-app-remote-release-0.8.0.aar')
     implementation 'com.google.code.gson:gson:2.10.1'
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
 
     debugImplementation 'androidx.compose.ui:ui-tooling'
 }
+

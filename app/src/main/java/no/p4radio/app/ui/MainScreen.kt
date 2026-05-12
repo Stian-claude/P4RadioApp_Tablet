@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -316,6 +318,9 @@ fun SpotifyContent(
     val isPlaying    by spotify.isPlaying.collectAsState()
     val tracks       by spotify.tracks.collectAsState()
     val error        by spotify.error.collectAsState()
+    val statusMsg    by spotify.statusMsg.collectAsState()
+    val needsAuth    by spotify.needsAuth.collectAsState()
+    val scope        = rememberCoroutineScope()
 
     Column(
         modifier = Modifier
@@ -343,7 +348,7 @@ fun SpotifyContent(
                 Spacer(Modifier.weight(1f))
                 CircularProgressIndicator(color = RadioGreen, modifier = Modifier.size(40.dp))
                 Text(
-                    text     = "Kobler til Spotify...",
+                    text     = statusMsg,
                     color    = RadioGreen.copy(alpha = 0.7f),
                     fontSize = 13.sp,
                     modifier = Modifier.padding(top = 12.dp)
@@ -351,17 +356,35 @@ fun SpotifyContent(
                 Spacer(Modifier.weight(1f))
             }
 
+            needsAuth -> {
+                Spacer(Modifier.weight(1f))
+                Text("Koble til din Spotify-konto", color = RadioGreen, fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(12.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(RadioGreen)
+                        .clickable { spotify.openAuthInBrowser() }
+                        .padding(horizontal = 24.dp, vertical = 10.dp)
+                ) {
+                    Text("Logg inn med Spotify", color = Color(0xFF0D0D0D),
+                        fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                }
+                error?.let { msg ->
+                    Spacer(Modifier.height(10.dp))
+                    Text(msg, color = Color(0xFFFF6B6B), fontSize = 12.sp)
+                }
+                Spacer(Modifier.weight(1f))
+            }
+
             !connected -> {
                 Spacer(Modifier.weight(1f))
                 error?.let { msg ->
-                    Text(
-                        text     = msg,
-                        color    = Color(0xFFFF6B6B),
-                        fontSize = 13.sp,
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    )
+                    Text(msg, color = Color(0xFFFF6B6B), fontSize = 13.sp,
+                        modifier = Modifier.padding(horizontal = 16.dp))
                     Spacer(Modifier.height(12.dp))
-                    TextButton(onClick = { spotify.clearError(); spotify.connect() }) {
+                    TextButton(onClick = { spotify.clearError() }) {
                         Text("Prøv igjen", color = RadioGreen)
                     }
                 } ?: run {
@@ -395,7 +418,7 @@ fun SpotifyContent(
                     modifier              = Modifier.padding(bottom = 8.dp)
                 ) {
                     IconButton(
-                        onClick  = { spotify.skipPrevious() },
+                        onClick  = { scope.launch { spotify.skipPrevious() } },
                         modifier = Modifier
                             .size(48.dp)
                             .background(Color.White.copy(alpha = 0.08f), CircleShape)
@@ -404,7 +427,7 @@ fun SpotifyContent(
                     }
 
                     IconButton(
-                        onClick  = { spotify.togglePlayPause() },
+                        onClick  = { scope.launch { spotify.togglePlayPause() } },
                         modifier = Modifier
                             .size(68.dp)
                             .background(RadioGreen.copy(alpha = 0.16f), CircleShape)
@@ -418,7 +441,7 @@ fun SpotifyContent(
                     }
 
                     IconButton(
-                        onClick  = { spotify.skipNext() },
+                        onClick  = { scope.launch { spotify.skipNext() } },
                         modifier = Modifier
                             .size(48.dp)
                             .background(Color.White.copy(alpha = 0.08f), CircleShape)
@@ -449,7 +472,7 @@ fun SpotifyContent(
                                         if (isCurrent) RadioGreen.copy(alpha = 0.12f)
                                         else Color.Transparent
                                     )
-                                    .clickable { spotify.playTrack(track.uri) }
+                                    .clickable { scope.launch { spotify.playTrack(track.uri) } }
                                     .padding(horizontal = 12.dp, vertical = 7.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -492,3 +515,4 @@ fun SpotifyContent(
         }
     }
 }
+

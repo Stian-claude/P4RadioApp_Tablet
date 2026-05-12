@@ -9,12 +9,14 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withTimeoutOrNull
 
 enum class AppMode { RADIO, SPOTIFY }
@@ -41,22 +43,21 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
     private val _appMode = MutableStateFlow(AppMode.RADIO)
     val appMode: StateFlow<AppMode> = _appMode
 
-    val spotifyController = SpotifyController()
+    val spotifyController = SpotifyController(application)
 
     private val resolvedUrls = mutableMapOf<String, String>()
+    private var pollingJob: Job? = null
 
     private val exoPlayer: ExoPlayer = ExoPlayer.Builder(application).build().apply {
         addListener(object : Player.Listener {
-            override fun onIsPlayingChanged(playing: Boolean) {
-                _isPlaying.value = playing
-            }
+            override fun onIsPlayingChanged(playing: Boolean) { _isPlaying.value = playing }
             override fun onPlaybackStateChanged(state: Int) {
                 _isBuffering.value = state == Player.STATE_BUFFERING
                 if (state == Player.STATE_READY) _errorMessage.value = null
             }
             override fun onPlayerError(error: PlaybackException) {
                 _errorMessage.value = "Kunne ikke koble til. Sjekk nettforbindelsen."
-                _isPlaying.value = false
+                _isPlaying.value  = false
                 _isBuffering.value = false
             }
         })
@@ -89,6 +90,7 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
         _appMode.value = mode
         when (mode) {
             AppMode.RADIO -> {
+                pollingJob?.cancel()
                 spotifyController.disconnect()
                 _currentStation.value?.let { station ->
                     val url = resolvedUrls[station.id] ?: return
@@ -101,7 +103,25 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
             AppMode.SPOTIFY -> {
                 exoPlayer.pause()
                 stopService()
-                spotifyController.connect()
+                viewModelScope.launch { spotifyController.connect() }
+                startSpotifyPolling()
+            }
+        }
+    }
+
+    fun handleSpotifyAuthCode(code: String) {
+        viewModelScope.launch {
+            spotifyController.handleAuthCode(code)
+            startSpotifyPolling()
+        }
+    }
+
+    private fun startSpotifyPolling() {
+        pollingJob?.cancel()
+        pollingJob = viewModelScope.launch {
+            while (true) {
+                delay(3000)
+                spotifyController.pollPlaybackState()
             }
         }
     }
@@ -114,7 +134,7 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         _currentStation.value = station
-        _errorMessage.value = null
+        _errorMessage.value   = null
         exoPlayer.stop()
         exoPlayer.clearMediaItems()
         exoPlayer.setMediaItem(MediaItem.fromUri(url))
@@ -130,14 +150,12 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
 
     fun prevStation() {
         val idx = stations.indexOfFirst { it.id == _currentStation.value?.id }
-        val prev = if (idx <= 0) stations.size - 1 else idx - 1
-        selectStation(stations[prev])
+        selectStation(stations[if (idx <= 0) stations.size - 1 else idx - 1])
     }
 
     fun togglePlayPause() {
         if (exoPlayer.isPlaying) {
-            exoPlayer.pause()
-            stopService()
+            exoPlayer.pause(); stopService()
         } else {
             _currentStation.value?.let { station ->
                 if (exoPlayer.playbackState == Player.STATE_IDLE ||
@@ -160,11 +178,10 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
                 action = RadioForegroundService.ACTION_START
                 putExtra(RadioForegroundService.EXTRA_STATION_NAME, stationName)
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                 getApplication<Application>().startForegroundService(intent)
-            } else {
+            else
                 getApplication<Application>().startService(intent)
-            }
         } catch (_: Exception) { }
     }
 
@@ -173,12 +190,12 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
             getApplication<Application>().startService(
                 Intent(getApplication(), RadioForegroundService::class.java).apply {
                     action = RadioForegroundService.ACTION_STOP
-                }
-            )
+                })
         } catch (_: Exception) { }
     }
 
     override fun onCleared() {
+        pollingJob?.cancel()
         exoPlayer.release()
         spotifyController.disconnect()
         stopService()

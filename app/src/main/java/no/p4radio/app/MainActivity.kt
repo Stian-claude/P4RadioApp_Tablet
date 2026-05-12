@@ -1,7 +1,9 @@
 package no.p4radio.app
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.View
@@ -26,20 +28,27 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         WindowCompat.setDecorFitsSystemWindows(window, false)
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED) {
+                != PackageManager.PERMISSION_GRANTED)
                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
         }
+        setContent { P4RadioTheme { MainScreen(viewModel = viewModel) } }
+        handleIntent(intent)
+    }
 
-        setContent {
-            P4RadioTheme {
-                MainScreen(viewModel = viewModel)
-            }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        val uri = intent?.data ?: return
+        if (uri.scheme == "no.radioapp.player" && uri.host == "callback") {
+            val code = uri.getQueryParameter("code") ?: return
+            viewModel.handleSpotifyAuthCode(code)
         }
     }
 
@@ -47,7 +56,6 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemBars()
-        // Gir Spotify App Remote en Activity-kontekst for OAuth-flyten
         viewModel.spotifyController.setContext(this)
     }
 
