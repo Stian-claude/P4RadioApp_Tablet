@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
+enum class AppMode { RADIO, SPOTIFY }
+
 class RadioViewModel(application: Application) : AndroidViewModel(application) {
 
     val stations = P4_STATIONS
@@ -35,6 +37,11 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage
+
+    private val _appMode = MutableStateFlow(AppMode.RADIO)
+    val appMode: StateFlow<AppMode> = _appMode
+
+    val spotifyController = SpotifyController()
 
     private val resolvedUrls = mutableMapOf<String, String>()
 
@@ -59,7 +66,6 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             fetchAllStreamUrls()
             _isFetchingUrls.value = false
-            // Auto-start P4
             selectStation(stations.first { it.id == "p4" })
         }
     }
@@ -74,6 +80,28 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
                 }.awaitAll()
+            }
+        }
+    }
+
+    fun setMode(mode: AppMode) {
+        if (_appMode.value == mode) return
+        _appMode.value = mode
+        when (mode) {
+            AppMode.RADIO -> {
+                spotifyController.disconnect()
+                _currentStation.value?.let { station ->
+                    val url = resolvedUrls[station.id] ?: return
+                    exoPlayer.setMediaItem(MediaItem.fromUri(url))
+                    exoPlayer.prepare()
+                    exoPlayer.play()
+                    startService(station.name)
+                }
+            }
+            AppMode.SPOTIFY -> {
+                exoPlayer.pause()
+                stopService()
+                spotifyController.connect()
             }
         }
     }
@@ -152,6 +180,7 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         exoPlayer.release()
+        spotifyController.disconnect()
         stopService()
         super.onCleared()
     }

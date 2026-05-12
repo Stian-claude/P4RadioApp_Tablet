@@ -47,6 +47,8 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemBars()
+        // Gir Spotify App Remote en Activity-kontekst for OAuth-flyten
+        viewModel.spotifyController.setContext(this)
     }
 
     override fun onPause() {
