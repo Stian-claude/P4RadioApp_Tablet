@@ -4,12 +4,18 @@ import android.app.Application
 import android.content.Intent
 import android.os.Build
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 class RadioViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -21,11 +27,16 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying
 
-    private val _isLoading = MutableStateFlow(false)
-    val isLoading: StateFlow<Boolean> = _isLoading
+    private val _isBuffering = MutableStateFlow(false)
+    val isBuffering: StateFlow<Boolean> = _isBuffering
+
+    private val _isFetchingUrls = MutableStateFlow(true)
+    val isFetchingUrls: StateFlow<Boolean> = _isFetchingUrls
 
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage
+
+    private val resolvedUrls = mutableMapOf<String, String>()
 
     private val exoPlayer: ExoPlayer = ExoPlayer.Builder(application).build().apply {
         addListener(object : Player.Listener {
@@ -33,26 +44,66 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
                 _isPlaying.value = playing
             }
             override fun onPlaybackStateChanged(state: Int) {
-                _isLoading.value = state == Player.STATE_BUFFERING
+                _isBuffering.value = state == Player.STATE_BUFFERING
                 if (state == Player.STATE_READY) _errorMessage.value = null
             }
             override fun onPlayerError(error: PlaybackException) {
-                _errorMessage.value = "Kan ikke koble til stasjonen"
+                _errorMessage.value = "Kunne ikke koble til. Sjekk nettforbindelsen."
                 _isPlaying.value = false
-                _isLoading.value = false
+                _isBuffering.value = false
             }
         })
     }
 
+    init {
+        viewModelScope.launch {
+            fetchAllStreamUrls()
+            _isFetchingUrls.value = false
+            // Auto-start P4
+            selectStation(stations.first { it.id == "p4" })
+        }
+    }
+
+    private suspend fun fetchAllStreamUrls() {
+        withTimeoutOrNull(9000L) {
+            coroutineScope {
+                stations.map { station ->
+                    async {
+                        RadioBrowserApi.findStreamUrl(station.searchName)?.let { url ->
+                            resolvedUrls[station.id] = url
+                        }
+                    }
+                }.awaitAll()
+            }
+        }
+    }
+
     fun selectStation(station: RadioStation) {
+        val url = resolvedUrls[station.id]
+        if (url == null) {
+            _errorMessage.value = "Stream-URL ikke tilgjengelig for ${station.name}"
+            _currentStation.value = station
+            return
+        }
         _currentStation.value = station
         _errorMessage.value = null
         exoPlayer.stop()
         exoPlayer.clearMediaItems()
-        exoPlayer.setMediaItem(MediaItem.fromUri(station.streamUrl))
+        exoPlayer.setMediaItem(MediaItem.fromUri(url))
         exoPlayer.prepare()
         exoPlayer.play()
         startService(station.name)
+    }
+
+    fun nextStation() {
+        val idx = stations.indexOfFirst { it.id == _currentStation.value?.id }
+        selectStation(stations[(idx + 1) % stations.size])
+    }
+
+    fun prevStation() {
+        val idx = stations.indexOfFirst { it.id == _currentStation.value?.id }
+        val prev = if (idx <= 0) stations.size - 1 else idx - 1
+        selectStation(stations[prev])
     }
 
     fun togglePlayPause() {
@@ -63,7 +114,8 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
             _currentStation.value?.let { station ->
                 if (exoPlayer.playbackState == Player.STATE_IDLE ||
                     exoPlayer.playbackState == Player.STATE_ENDED) {
-                    exoPlayer.setMediaItem(MediaItem.fromUri(station.streamUrl))
+                    val url = resolvedUrls[station.id] ?: return
+                    exoPlayer.setMediaItem(MediaItem.fromUri(url))
                     exoPlayer.prepare()
                 }
                 exoPlayer.play()
@@ -72,14 +124,7 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun stop() {
-        exoPlayer.stop()
-        stopService()
-    }
-
-    fun clearError() {
-        _errorMessage.value = null
-    }
+    fun clearError() { _errorMessage.value = null }
 
     private fun startService(stationName: String) {
         try {
@@ -92,15 +137,16 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 getApplication<Application>().startService(intent)
             }
-        } catch (_: Exception) { /* tjenesten starter ikke, avspilling fortsetter */ }
+        } catch (_: Exception) { }
     }
 
     private fun stopService() {
         try {
-            val intent = Intent(getApplication(), RadioForegroundService::class.java).apply {
-                action = RadioForegroundService.ACTION_STOP
-            }
-            getApplication<Application>().startService(intent)
+            getApplication<Application>().startService(
+                Intent(getApplication(), RadioForegroundService::class.java).apply {
+                    action = RadioForegroundService.ACTION_STOP
+                }
+            )
         } catch (_: Exception) { }
     }
 
