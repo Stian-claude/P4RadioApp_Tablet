@@ -19,11 +19,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.text.ExperimentalTextApi
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.googlefonts.Font
-import androidx.compose.ui.text.googlefonts.GoogleFont
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
@@ -33,20 +31,7 @@ import java.util.*
 
 val RadioGreen = Color(0xFF5ACB7E)
 
-@OptIn(ExperimentalTextApi::class)
-private val fontProvider = GoogleFont.Provider(
-    providerAuthority = "com.google.android.gms.fonts",
-    providerPackage = "com.google.android.gms",
-    certificates = R.array.com_google_android_gms_fonts_certs
-)
-
-@OptIn(ExperimentalTextApi::class)
-val RadioClockFont: FontFamily = FontFamily(
-    Font(
-        googleFont = GoogleFont("Pirata One"),
-        fontProvider = fontProvider,
-    )
-)
+val RadioClockFont: FontFamily = FontFamily(Font(R.font.pirata_one))
 
 private val DAY_NAMES   = arrayOf("Søndag","Mandag","Tirsdag","Onsdag","Torsdag","Fredag","Lørdag")
 private val MONTH_NAMES = arrayOf("Januar","Februar","Mars","April","Mai","Juni",
