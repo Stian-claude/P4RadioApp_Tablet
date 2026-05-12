@@ -31,7 +31,7 @@ import java.util.*
 
 val RadioGreen = Color(0xFF5ACB7E)
 
-val RadioClockFont: FontFamily = FontFamily(Font(R.font.pirata_one))
+val RadioClockFont: FontFamily = FontFamily(Font(R.font.playfair_display))
 
 private val DAY_NAMES   = arrayOf("Søndag","Mandag","Tirsdag","Onsdag","Torsdag","Fredag","Lørdag")
 private val MONTH_NAMES = arrayOf("Januar","Februar","Mars","April","Mai","Juni",
@@ -106,7 +106,7 @@ fun MainScreen(viewModel: RadioViewModel) {
                 text = dateText,
                 fontSize = dateFontSize,
                 color = RadioGreen.copy(alpha = 0.65f),
-                modifier = Modifier.padding(top = 4.dp, bottom = clockPadding)
+                modifier = Modifier.padding(top = 0.dp, bottom = clockPadding)
             )
 
             // ── Kontroller (ingen ramme, transparent bakgrunn) ──────────
