@@ -244,11 +244,13 @@ class SpotifyController {
     fun fetchPlaylistTracks() {
         if (_tracksLoading.value) return
         _tracksLoading.value = true
+        _tracksError.value = null
         val remote = appRemote
         if (remote?.isConnected == true) {
-            val item = ListItem(PLAYLIST_URI, PLAYLIST_URI, null, "", "", false, true)
-            remote.contentApi.getChildrenOfItem(item, 100, 0)
+            val item = ListItem(PLAYLIST_URI, PLAYLIST_URI, null, "Road trip", "", false, true)
+            remote.contentApi.getChildrenOfItem(item, 50, 0)
                 .setResultCallback { result ->
+                    Log.d("SpotifyCtrl", "contentApi: ${result.items.size} raw items")
                     val list = result.items
                         .filter { it.uri.isNotEmpty() }
                         .map { SpotifyTrack(it.uri, it.title, it.subtitle ?: "") }
@@ -256,8 +258,10 @@ class SpotifyController {
                         _tracks.value = list
                         _tracksError.value = null
                         _tracksLoading.value = false
-                        Log.d("SpotifyCtrl", "Fetched ${list.size} tracks via App Remote")
+                        Log.d("SpotifyCtrl", "Fetched ${list.size} tracks via App Remote contentApi")
                     } else {
+                        Log.w("SpotifyCtrl", "contentApi: ${result.items.size} items, 0 with URI — falling back")
+                        _tracksError.value = "contentApi: ${result.items.size} items (0 brukbare)"
                         scope.launch {
                             fetchTracksViaWebApi()
                             _tracksLoading.value = false
@@ -266,6 +270,7 @@ class SpotifyController {
                 }
                 .setErrorCallback { e ->
                     Log.w("SpotifyCtrl", "contentApi error: $e")
+                    _tracksError.value = "contentApi feil: $e"
                     scope.launch {
                         fetchTracksViaWebApi()
                         _tracksLoading.value = false
