@@ -297,66 +297,61 @@ class SpotifyController {
                 return
             }
 
-            // Step 1: verify token works at all
-            val meResp = http.newCall(
-                Request.Builder().url("https://api.spotify.com/v1/me")
-                    .header("Authorization", "Bearer $token").build()
-            ).execute()
-            val meBody = meResp.body?.string() ?: ""
-            if (!meResp.isSuccessful) {
-                _tracksError.value = "/me: HTTP ${meResp.code} — $meBody"
-                return
-            }
-            val meId = try { JSONObject(meBody).optString("id", "?") } catch (_: Exception) { "?" }
-
-            // Step 2: check if playlist itself is accessible
-            val plResp = http.newCall(
-                Request.Builder().url("https://api.spotify.com/v1/playlists/$PLAYLIST_ID")
-                    .header("Authorization", "Bearer $token").build()
-            ).execute()
-            val plBody = plResp.body?.string() ?: ""
-            if (!plResp.isSuccessful) {
-                val plMsg = try { JSONObject(plBody).optJSONObject("error")?.optString("message") ?: plBody } catch (_: Exception) { plBody }
-                _tracksError.value = "user=$meId /playlist: HTTP ${plResp.code}: $plMsg"
-                return
-            }
-            val plJson = try { JSONObject(plBody) } catch (_: Exception) { null }
-            val plName   = plJson?.optString("name", "?") ?: "?"
-            val plPublic = plJson?.optBoolean("public", false) ?: false
-            val plOwner  = plJson?.optJSONObject("owner")?.optString("id", "?") ?: "?"
-
-            // Step 3: fetch tracks
+            // Try base playlist endpoint — /tracks has unexpected 403 despite valid scope
             val resp = http.newCall(
                 Request.Builder()
-                    .url("https://api.spotify.com/v1/playlists/$PLAYLIST_ID/tracks?limit=100")
+                    .url("https://api.spotify.com/v1/playlists/$PLAYLIST_ID")
                     .header("Authorization", "Bearer $token")
                     .build()
             ).execute()
 
             val bodyStr = resp.body?.string() ?: ""
             if (!resp.isSuccessful) {
-                // Check if playlist-read-private scope is missing
-                val scopeResp = http.newCall(
-                    Request.Builder().url("https://api.spotify.com/v1/me/playlists?limit=1")
-                        .header("Authorization", "Bearer $token").build()
-                ).execute()
-                scopeResp.body?.string() // consume
-                if (scopeResp.code == 403) {
-                    _needsTracksReauth.value = true
-                    _tracksError.value = "Mangler playlist-tilgang i tokenet"
-                } else {
-                    val spotifyMsg = try { JSONObject(bodyStr).optJSONObject("error")?.optString("message") ?: bodyStr } catch (_: Exception) { bodyStr }
-                    _tracksError.value = "HTTP ${resp.code}: $spotifyMsg"
-                }
-                Log.w("SpotifyCtrl", "fetchTracksViaWebApi: ${resp.code} — $bodyStr")
+                val spotifyMsg = try { JSONObject(bodyStr).optJSONObject("error")?.optString("message") ?: bodyStr } catch (_: Exception) { bodyStr }
+                _tracksError.value = "HTTP ${resp.code}: $spotifyMsg"
                 return
             }
-            val json  = JSONObject(bodyStr)
-            val items = json.optJSONArray("items") ?: run {
+
+            val plJson     = try { JSONObject(bodyStr) } catch (_: Exception) { null }
+            val tracksObj  = plJson?.optJSONObject("tracks")
+            val items      = tracksObj?.optJSONArray("items")
+            val total      = tracksObj?.optInt("total", -1) ?: -1
+            val itemsCount = items?.length() ?: -1
+
+            if (itemsCount > 0) {
+                val list = parseTrackItems(items!!)
+                if (list.isNotEmpty()) {
+                    _tracks.value = list
+                    _tracksError.value = null
+                    Log.d("SpotifyCtrl", "Fetched ${list.size} tracks via /playlists/{id}")
+                    return
+                }
+            }
+
+            // No tracks from base endpoint — show diagnostic and fall through
+            Log.w("SpotifyCtrl", "base endpoint: items=$itemsCount total=$total")
+            _tracksError.value = "base: items=$itemsCount total=$total"
+
+            // Fall through to /tracks endpoint as last resort
+            val tracksResp = http.newCall(
+                Request.Builder()
+                    .url("https://api.spotify.com/v1/playlists/$PLAYLIST_ID/tracks?limit=100")
+                    .header("Authorization", "Bearer $token")
+                    .build()
+            ).execute()
+            val tracksBody = tracksResp.body?.string() ?: ""
+            if (!tracksResp.isSuccessful) {
+                val msg = try { JSONObject(tracksBody).optJSONObject("error")?.optString("message") ?: tracksBody } catch (_: Exception) { tracksBody }
+                _tracksError.value = "base: items=$itemsCount total=$total | /tracks: HTTP ${tracksResp.code}: $msg"
+                Log.w("SpotifyCtrl", "/tracks: ${tracksResp.code} — $tracksBody")
+                return
+            }
+            val json      = JSONObject(tracksBody)
+            val trackItems = json.optJSONArray("items") ?: run {
                 _tracksError.value = "Tom respons fra Spotify"
                 return
             }
-            val list = parseTrackItems(items)
+            val list = parseTrackItems(trackItems)
             if (list.isNotEmpty()) {
                 _tracks.value = list
                 _tracksError.value = null
