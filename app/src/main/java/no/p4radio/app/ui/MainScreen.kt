@@ -276,6 +276,7 @@ fun SpotifyContent(
     val error          by spotify.error.collectAsState()
     val tracks         by spotify.tracks.collectAsState()
     val tracksLoading  by spotify.tracksLoading.collectAsState()
+    val tracksError    by spotify.tracksError.collectAsState()
 
     val playSize = if (isLandscape) 100.dp else 104.dp
     val skipSize = if (isLandscape) 74.dp  else 76.dp
@@ -514,8 +515,8 @@ fun SpotifyContent(
                                     modifier = Modifier.padding(horizontal = 16.dp)
                                 ) {
                                     Text(
-                                        "Kunne ikke hente spilleliste",
-                                        color = RadioGreen.copy(alpha = 0.6f),
+                                        tracksError ?: "Kunne ikke hente spilleliste",
+                                        color = Color(0xFFFF6B6B).copy(alpha = 0.85f),
                                         fontSize = 12.sp,
                                         textAlign = TextAlign.Center
                                     )

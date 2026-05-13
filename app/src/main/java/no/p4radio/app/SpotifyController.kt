@@ -78,6 +78,9 @@ class SpotifyController {
     private val _tracksLoading = MutableStateFlow(false)
     val tracksLoading: StateFlow<Boolean> = _tracksLoading
 
+    private val _tracksError = MutableStateFlow<String?>(null)
+    val tracksError: StateFlow<String?> = _tracksError
+
     fun setContext(context: Context) {
         contextRef = WeakReference(context)
     }
@@ -251,6 +254,7 @@ class SpotifyController {
                         .map { SpotifyTrack(it.uri, it.title, it.subtitle ?: "") }
                     if (list.isNotEmpty()) {
                         _tracks.value = list
+                        _tracksError.value = null
                         _tracksLoading.value = false
                         Log.d("SpotifyCtrl", "Fetched ${list.size} tracks via App Remote")
                     } else {
@@ -278,19 +282,30 @@ class SpotifyController {
     private suspend fun fetchTracksViaWebApi() {
         try {
             ensureUserToken()
-            val token = accessToken ?: return
+            val token = accessToken
+            if (token == null) {
+                _tracksError.value = "Token mangler – logg inn på nytt"
+                Log.w("SpotifyCtrl", "fetchTracksViaWebApi: no access token")
+                return
+            }
             val resp = http.newCall(
                 Request.Builder()
-                    .url("https://api.spotify.com/v1/playlists/$PLAYLIST_ID/tracks?limit=100&fields=items(track(uri,name,artists(name)))")
+                    .url("https://api.spotify.com/v1/playlists/$PLAYLIST_ID/tracks?limit=100")
                     .header("Authorization", "Bearer $token")
                     .build()
             ).execute()
+            val bodyStr = resp.body?.string() ?: ""
             if (!resp.isSuccessful) {
-                Log.w("SpotifyCtrl", "fetchTracksViaWebApi: HTTP ${resp.code}")
+                val msg = "HTTP ${resp.code}"
+                _tracksError.value = msg
+                Log.w("SpotifyCtrl", "fetchTracksViaWebApi: $msg — $bodyStr")
                 return
             }
-            val json  = JSONObject(resp.body!!.string())
-            val items = json.optJSONArray("items") ?: return
+            val json  = JSONObject(bodyStr)
+            val items = json.optJSONArray("items") ?: run {
+                _tracksError.value = "Tom respons fra Spotify"
+                return
+            }
             val list  = mutableListOf<SpotifyTrack>()
             for (i in 0 until items.length()) {
                 val track = items.getJSONObject(i).optJSONObject("track") ?: continue
@@ -304,9 +319,13 @@ class SpotifyController {
             }
             if (list.isNotEmpty()) {
                 _tracks.value = list
+                _tracksError.value = null
                 Log.d("SpotifyCtrl", "Fetched ${list.size} tracks via Web API")
+            } else {
+                _tracksError.value = "Ingen sanger funnet"
             }
         } catch (e: Exception) {
+            _tracksError.value = "Feil: ${e.message}"
             Log.w("SpotifyCtrl", "fetchTracksViaWebApi failed: $e")
         }
     }
@@ -613,6 +632,7 @@ class SpotifyController {
         _error.value          = null
         _tracks.value         = emptyList()
         _tracksLoading.value  = false
+        _tracksError.value    = null
     }
 
     fun clearError() { _error.value = null }
