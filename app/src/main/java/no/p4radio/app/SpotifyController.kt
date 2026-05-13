@@ -75,6 +75,9 @@ class SpotifyController {
     private val _tracks = MutableStateFlow<List<SpotifyTrack>>(emptyList())
     val tracks: StateFlow<List<SpotifyTrack>> = _tracks
 
+    private val _tracksLoading = MutableStateFlow(false)
+    val tracksLoading: StateFlow<Boolean> = _tracksLoading
+
     fun setContext(context: Context) {
         contextRef = WeakReference(context)
     }
@@ -236,27 +239,39 @@ class SpotifyController {
 
     // Fetch playlist tracks — tries App Remote contentApi first, falls back to Web API
     fun fetchPlaylistTracks() {
+        if (_tracksLoading.value) return
+        _tracksLoading.value = true
         val remote = appRemote
         if (remote?.isConnected == true) {
             val item = ListItem(PLAYLIST_URI, PLAYLIST_URI, null, "", "", false, true)
             remote.contentApi.getChildrenOfItem(item, 100, 0)
                 .setResultCallback { result ->
                     val list = result.items
-                        .filter { it.playable }
+                        .filter { it.uri.isNotEmpty() }
                         .map { SpotifyTrack(it.uri, it.title, it.subtitle ?: "") }
                     if (list.isNotEmpty()) {
                         _tracks.value = list
+                        _tracksLoading.value = false
                         Log.d("SpotifyCtrl", "Fetched ${list.size} tracks via App Remote")
                     } else {
-                        scope.launch { fetchTracksViaWebApi() }
+                        scope.launch {
+                            fetchTracksViaWebApi()
+                            _tracksLoading.value = false
+                        }
                     }
                 }
                 .setErrorCallback { e ->
                     Log.w("SpotifyCtrl", "contentApi error: $e")
-                    scope.launch { fetchTracksViaWebApi() }
+                    scope.launch {
+                        fetchTracksViaWebApi()
+                        _tracksLoading.value = false
+                    }
                 }
         } else {
-            scope.launch { fetchTracksViaWebApi() }
+            scope.launch {
+                fetchTracksViaWebApi()
+                _tracksLoading.value = false
+            }
         }
     }
 
@@ -597,6 +612,7 @@ class SpotifyController {
         _awaitingReturn.value = false
         _error.value          = null
         _tracks.value         = emptyList()
+        _tracksLoading.value  = false
     }
 
     fun clearError() { _error.value = null }

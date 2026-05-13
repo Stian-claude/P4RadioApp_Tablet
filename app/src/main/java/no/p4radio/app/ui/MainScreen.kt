@@ -275,6 +275,7 @@ fun SpotifyContent(
     val isPlaying      by spotify.isPlaying.collectAsState()
     val error          by spotify.error.collectAsState()
     val tracks         by spotify.tracks.collectAsState()
+    val tracksLoading  by spotify.tracksLoading.collectAsState()
 
     val playSize = if (isLandscape) 100.dp else 104.dp
     val skipSize = if (isLandscape) 74.dp  else 76.dp
@@ -501,11 +502,29 @@ fun SpotifyContent(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center
                         ) {
-                            CircularProgressIndicator(
-                                color = RadioGreen,
-                                modifier = Modifier.size(32.dp),
-                                strokeWidth = 2.dp
-                            )
+                            if (tracksLoading) {
+                                CircularProgressIndicator(
+                                    color = RadioGreen,
+                                    modifier = Modifier.size(32.dp),
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier.padding(horizontal = 16.dp)
+                                ) {
+                                    Text(
+                                        "Kunne ikke hente spilleliste",
+                                        color = RadioGreen.copy(alpha = 0.6f),
+                                        fontSize = 12.sp,
+                                        textAlign = TextAlign.Center
+                                    )
+                                    Spacer(Modifier.height(12.dp))
+                                    TextButton(onClick = { spotify.fetchPlaylistTracks() }) {
+                                        Text("Prøv igjen", color = RadioGreen, fontSize = 12.sp)
+                                    }
+                                }
+                            }
                         }
                     } else {
                         LazyColumn(
