@@ -302,37 +302,10 @@ class SpotifyController {
                     .build()
             ).execute()
 
-            // If 403, try base playlist endpoint (includes first page of tracks inline)
+            // If 403 from user token, try client credentials (works for public playlists)
             if (resp.code == 403) {
-                Log.w("SpotifyCtrl", "fetchTracksViaWebApi: /tracks returned 403, trying /playlists/{id}")
-                resp = http.newCall(
-                    Request.Builder()
-                        .url("https://api.spotify.com/v1/playlists/$PLAYLIST_ID")
-                        .header("Authorization", "Bearer $token")
-                        .build()
-                ).execute()
-
-                if (!resp.isSuccessful) {
-                    _tracksError.value = "Spotify Development-mode begrensning (HTTP ${resp.code}). Søk om Extended Access i Developer Dashboard."
-                    Log.w("SpotifyCtrl", "fetchTracksViaWebApi: /playlists/{id} also failed: ${resp.code}")
-                    return
-                }
-                val bodyStr = resp.body?.string() ?: ""
-                val json = JSONObject(bodyStr)
-                val tracksObj = json.optJSONObject("tracks")
-                val items = tracksObj?.optJSONArray("items")
-                if (items == null) {
-                    _tracksError.value = "Ingen sanger funnet"
-                    return
-                }
-                val list = parseTrackItems(items)
-                if (list.isNotEmpty()) {
-                    _tracks.value = list
-                    _tracksError.value = null
-                    Log.d("SpotifyCtrl", "Fetched ${list.size} tracks via /playlists/{id}")
-                } else {
-                    _tracksError.value = "Ingen sanger funnet"
-                }
+                Log.w("SpotifyCtrl", "fetchTracksViaWebApi: user token 403, trying client credentials")
+                fetchTracksViaClientCredentials()
                 return
             }
 
@@ -358,6 +331,57 @@ class SpotifyController {
         } catch (e: Exception) {
             _tracksError.value = "Feil: ${e.message}"
             Log.w("SpotifyCtrl", "fetchTracksViaWebApi failed: $e")
+        }
+    }
+
+    private suspend fun fetchTracksViaClientCredentials() {
+        try {
+            val creds = Base64.getEncoder()
+                .encodeToString("$CLIENT_ID:$CLIENT_SECRET".toByteArray())
+            val tokenResp = http.newCall(
+                Request.Builder()
+                    .url("https://accounts.spotify.com/api/token")
+                    .post("grant_type=client_credentials"
+                        .toRequestBody("application/x-www-form-urlencoded".toMediaType()))
+                    .header("Authorization", "Basic $creds")
+                    .build()
+            ).execute()
+            if (!tokenResp.isSuccessful) {
+                _tracksError.value = "App-token feil: HTTP ${tokenResp.code}"
+                return
+            }
+            val appToken = JSONObject(tokenResp.body!!.string()).getString("access_token")
+
+            val tracksResp = http.newCall(
+                Request.Builder()
+                    .url("https://api.spotify.com/v1/playlists/$PLAYLIST_ID/tracks?limit=100")
+                    .header("Authorization", "Bearer $appToken")
+                    .build()
+            ).execute()
+            val tracksBody = tracksResp.body?.string() ?: ""
+            if (!tracksResp.isSuccessful) {
+                _tracksError.value = if (tracksResp.code == 404)
+                    "Spillelisten er privat – gjør den offentlig i Spotify for å vise den her"
+                else
+                    "HTTP ${tracksResp.code}"
+                Log.w("SpotifyCtrl", "client_credentials /tracks: ${tracksResp.code} $tracksBody")
+                return
+            }
+            val items = JSONObject(tracksBody).optJSONArray("items") ?: run {
+                _tracksError.value = "Ingen sanger i respons"
+                return
+            }
+            val list = parseTrackItems(items)
+            if (list.isNotEmpty()) {
+                _tracks.value = list
+                _tracksError.value = null
+                Log.d("SpotifyCtrl", "Fetched ${list.size} tracks via client credentials")
+            } else {
+                _tracksError.value = "Ingen sanger funnet"
+            }
+        } catch (e: Exception) {
+            _tracksError.value = "Feil: ${e.message}"
+            Log.w("SpotifyCtrl", "fetchTracksViaClientCredentials failed: $e")
         }
     }
 
