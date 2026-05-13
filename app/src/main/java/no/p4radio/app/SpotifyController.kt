@@ -81,6 +81,9 @@ class SpotifyController {
     private val _tracksError = MutableStateFlow<String?>(null)
     val tracksError: StateFlow<String?> = _tracksError
 
+    private val _needsTracksReauth = MutableStateFlow(false)
+    val needsTracksReauth: StateFlow<Boolean> = _needsTracksReauth
+
     fun setContext(context: Context) {
         contextRef = WeakReference(context)
     }
@@ -294,6 +297,35 @@ class SpotifyController {
                 return
             }
 
+            // Step 1: verify token works at all
+            val meResp = http.newCall(
+                Request.Builder().url("https://api.spotify.com/v1/me")
+                    .header("Authorization", "Bearer $token").build()
+            ).execute()
+            val meBody = meResp.body?.string() ?: ""
+            if (!meResp.isSuccessful) {
+                _tracksError.value = "/me: HTTP ${meResp.code} — $meBody"
+                return
+            }
+            val meId = try { JSONObject(meBody).optString("id", "?") } catch (_: Exception) { "?" }
+
+            // Step 2: check if playlist itself is accessible
+            val plResp = http.newCall(
+                Request.Builder().url("https://api.spotify.com/v1/playlists/$PLAYLIST_ID")
+                    .header("Authorization", "Bearer $token").build()
+            ).execute()
+            val plBody = plResp.body?.string() ?: ""
+            if (!plResp.isSuccessful) {
+                val plMsg = try { JSONObject(plBody).optJSONObject("error")?.optString("message") ?: plBody } catch (_: Exception) { plBody }
+                _tracksError.value = "user=$meId /playlist: HTTP ${plResp.code}: $plMsg"
+                return
+            }
+            val plJson = try { JSONObject(plBody) } catch (_: Exception) { null }
+            val plName   = plJson?.optString("name", "?") ?: "?"
+            val plPublic = plJson?.optBoolean("public", false) ?: false
+            val plOwner  = plJson?.optJSONObject("owner")?.optString("id", "?") ?: "?"
+
+            // Step 3: fetch tracks
             val resp = http.newCall(
                 Request.Builder()
                     .url("https://api.spotify.com/v1/playlists/$PLAYLIST_ID/tracks?limit=100")
@@ -303,11 +335,19 @@ class SpotifyController {
 
             val bodyStr = resp.body?.string() ?: ""
             if (!resp.isSuccessful) {
-                // Show full Spotify error message so we can diagnose the root cause
-                val spotifyMsg = try {
-                    JSONObject(bodyStr).optJSONObject("error")?.optString("message") ?: bodyStr
-                } catch (_: Exception) { bodyStr }
-                _tracksError.value = "HTTP ${resp.code}: $spotifyMsg"
+                // Check if playlist-read-private scope is missing
+                val scopeResp = http.newCall(
+                    Request.Builder().url("https://api.spotify.com/v1/me/playlists?limit=1")
+                        .header("Authorization", "Bearer $token").build()
+                ).execute()
+                scopeResp.body?.string() // consume
+                if (scopeResp.code == 403) {
+                    _needsTracksReauth.value = true
+                    _tracksError.value = "Mangler playlist-tilgang i tokenet"
+                } else {
+                    val spotifyMsg = try { JSONObject(bodyStr).optJSONObject("error")?.optString("message") ?: bodyStr } catch (_: Exception) { bodyStr }
+                    _tracksError.value = "HTTP ${resp.code}: $spotifyMsg"
+                }
                 Log.w("SpotifyCtrl", "fetchTracksViaWebApi: ${resp.code} — $bodyStr")
                 return
             }
@@ -696,10 +736,17 @@ class SpotifyController {
         _needsAuth.value      = false
         _awaitingReturn.value = false
         _error.value          = null
-        _tracks.value         = emptyList()
-        _tracksLoading.value  = false
-        _tracksError.value    = null
+        _tracks.value            = emptyList()
+        _tracksLoading.value     = false
+        _tracksError.value       = null
+        _needsTracksReauth.value = false
     }
 
     fun clearError() { _error.value = null }
+
+    fun reauthorize() {
+        _needsTracksReauth.value = false
+        _tracksError.value = null
+        openAuthInBrowser()
+    }
 }

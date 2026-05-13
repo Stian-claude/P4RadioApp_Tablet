@@ -274,9 +274,10 @@ fun SpotifyContent(
     val currentTrack   by spotify.currentTrack.collectAsState()
     val isPlaying      by spotify.isPlaying.collectAsState()
     val error          by spotify.error.collectAsState()
-    val tracks         by spotify.tracks.collectAsState()
-    val tracksLoading  by spotify.tracksLoading.collectAsState()
-    val tracksError    by spotify.tracksError.collectAsState()
+    val tracks            by spotify.tracks.collectAsState()
+    val tracksLoading     by spotify.tracksLoading.collectAsState()
+    val tracksError       by spotify.tracksError.collectAsState()
+    val needsTracksReauth by spotify.needsTracksReauth.collectAsState()
 
     val playSize = if (isLandscape) 100.dp else 104.dp
     val skipSize = if (isLandscape) 74.dp  else 76.dp
@@ -514,15 +515,32 @@ fun SpotifyContent(
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     modifier = Modifier.padding(horizontal = 16.dp)
                                 ) {
-                                    Text(
-                                        tracksError ?: "Kunne ikke hente spilleliste",
-                                        color = Color(0xFFFF6B6B).copy(alpha = 0.85f),
-                                        fontSize = 12.sp,
-                                        textAlign = TextAlign.Center
-                                    )
-                                    Spacer(Modifier.height(12.dp))
-                                    TextButton(onClick = { spotify.fetchPlaylistTracks() }) {
-                                        Text("Prøv igjen", color = RadioGreen, fontSize = 12.sp)
+                                    if (needsTracksReauth) {
+                                        Text(
+                                            "Appen mangler tilgang til spillelister.\nLogg inn på nytt for å gi tilgang.",
+                                            color = Color(0xFFFF6B6B).copy(alpha = 0.85f),
+                                            fontSize = 12.sp,
+                                            textAlign = TextAlign.Center
+                                        )
+                                        Spacer(Modifier.height(12.dp))
+                                        Button(
+                                            onClick = { spotify.reauthorize() },
+                                            colors = ButtonDefaults.buttonColors(containerColor = RadioGreen)
+                                        ) {
+                                            Text("Gi tilgang til spillelister", color = Color(0xFF0D0D0D),
+                                                fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                                        }
+                                    } else {
+                                        Text(
+                                            tracksError ?: "Kunne ikke hente spilleliste",
+                                            color = Color(0xFFFF6B6B).copy(alpha = 0.85f),
+                                            fontSize = 12.sp,
+                                            textAlign = TextAlign.Center
+                                        )
+                                        Spacer(Modifier.height(12.dp))
+                                        TextButton(onClick = { spotify.fetchPlaylistTracks() }) {
+                                            Text("Prøv igjen", color = RadioGreen, fontSize = 12.sp)
+                                        }
                                     }
                                 }
                             }
