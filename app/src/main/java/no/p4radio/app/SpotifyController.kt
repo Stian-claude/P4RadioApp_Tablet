@@ -294,24 +294,20 @@ class SpotifyController {
                 return
             }
 
-            // Try /tracks endpoint first
-            var resp = http.newCall(
+            val resp = http.newCall(
                 Request.Builder()
                     .url("https://api.spotify.com/v1/playlists/$PLAYLIST_ID/tracks?limit=100")
                     .header("Authorization", "Bearer $token")
                     .build()
             ).execute()
 
-            // If 403 from user token, try client credentials (works for public playlists)
-            if (resp.code == 403) {
-                Log.w("SpotifyCtrl", "fetchTracksViaWebApi: user token 403, trying client credentials")
-                fetchTracksViaClientCredentials()
-                return
-            }
-
             val bodyStr = resp.body?.string() ?: ""
             if (!resp.isSuccessful) {
-                _tracksError.value = "HTTP ${resp.code}"
+                // Show full Spotify error message so we can diagnose the root cause
+                val spotifyMsg = try {
+                    JSONObject(bodyStr).optJSONObject("error")?.optString("message") ?: bodyStr
+                } catch (_: Exception) { bodyStr }
+                _tracksError.value = "HTTP ${resp.code}: $spotifyMsg"
                 Log.w("SpotifyCtrl", "fetchTracksViaWebApi: ${resp.code} — $bodyStr")
                 return
             }
