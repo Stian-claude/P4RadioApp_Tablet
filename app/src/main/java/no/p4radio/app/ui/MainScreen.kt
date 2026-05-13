@@ -1,14 +1,25 @@
 package no.p4radio.app.ui
 
 import android.content.res.Configuration
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.*
@@ -22,6 +33,7 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -76,8 +88,6 @@ fun MainScreen(viewModel: RadioViewModel) {
 
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-    // Auto-pause Spotify when rotating away from landscape
-    // Read appMode.value directly to avoid stale closure capture
     var prevLandscape by remember { mutableStateOf(isLandscape) }
     LaunchedEffect(isLandscape) {
         if (!isLandscape && prevLandscape && viewModel.appMode.value == AppMode.SPOTIFY) {
@@ -158,7 +168,6 @@ fun RadioContent(
     }
 
     if (isLandscape) {
-        // Landscape: klokke øverst, kontroller nederst
         Column(
             modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -176,7 +185,6 @@ fun RadioContent(
             Spacer(Modifier.height(20.dp))
         }
     } else {
-        // Portrett: alt sentrert samlet
         Column(
             modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -266,122 +274,299 @@ fun SpotifyContent(
     val currentTrack   by spotify.currentTrack.collectAsState()
     val isPlaying      by spotify.isPlaying.collectAsState()
     val error          by spotify.error.collectAsState()
+    val tracks         by spotify.tracks.collectAsState()
 
     val playSize = if (isLandscape) 100.dp else 104.dp
     val skipSize = if (isLandscape) 74.dp  else 76.dp
     val iconPlay = if (isLandscape) 56.dp  else 58.dp
     val iconSkip = if (isLandscape) 42.dp  else 42.dp
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(clockTime,
-            fontSize = if (isLandscape) 72.sp else 96.sp,
-            fontFamily = RadioClockFont, color = RadioGreen, letterSpacing = 4.sp)
-        Text(dateText,
-            fontSize = if (isLandscape) 14.sp else 15.sp,
-            color = RadioGreen.copy(alpha = 0.55f))
+    val showFlyoutButton = isLandscape && connected && !awaitingReturn && !connecting && !needsAuth
+    var flyoutOpen by remember { mutableStateOf(false) }
 
-        when {
-            needsAuth -> {
-                Spacer(Modifier.weight(1f))
-                error?.let {
-                    Text(it, color = Color(0xFFFF6B6B), fontSize = 12.sp,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-                }
-                Button(onClick = { spotify.openAuthInBrowser() },
-                    colors = ButtonDefaults.buttonColors(containerColor = RadioGreen)) {
-                    Text("Logg inn med Spotify", color = Color(0xFF0D0D0D), fontWeight = FontWeight.SemiBold)
-                }
-                Spacer(Modifier.weight(1f))
-            }
+    LaunchedEffect(flyoutOpen) {
+        if (flyoutOpen && tracks.isEmpty()) {
+            spotify.fetchPlaylistTracks()
+        }
+    }
 
-            connecting -> {
-                Spacer(Modifier.weight(1f))
-                CircularProgressIndicator(color = RadioGreen, modifier = Modifier.size(44.dp))
-                Text("Kobler til Spotify...", color = RadioGreen.copy(alpha = 0.7f),
-                    fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
-                Spacer(Modifier.weight(1f))
-            }
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(
+                    horizontal = 20.dp,
+                    vertical = 12.dp
+                )
+                .padding(end = if (showFlyoutButton) 30.dp else 0.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(clockTime,
+                fontSize = if (isLandscape) 72.sp else 96.sp,
+                fontFamily = RadioClockFont, color = RadioGreen, letterSpacing = 4.sp)
+            Text(dateText,
+                fontSize = if (isLandscape) 14.sp else 15.sp,
+                color = RadioGreen.copy(alpha = 0.55f))
 
-            !connected -> {
-                Spacer(Modifier.weight(1f))
-                error?.let { msg ->
-                    Text(msg, color = Color(0xFFFF6B6B), fontSize = 13.sp,
-                        modifier = Modifier.padding(horizontal = 16.dp))
-                    Spacer(Modifier.height(12.dp))
-                    TextButton(onClick = { spotify.clearError(); spotify.connect() }) {
-                        Text("Prøv igjen", color = RadioGreen)
+            when {
+                needsAuth -> {
+                    Spacer(Modifier.weight(1f))
+                    error?.let {
+                        Text(it, color = Color(0xFFFF6B6B), fontSize = 12.sp,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
                     }
-                } ?: Text("Ikke koblet til Spotify", color = RadioGreen.copy(0.6f), fontSize = 13.sp)
-                Spacer(Modifier.weight(1f))
-            }
-
-            awaitingReturn -> {
-                Spacer(Modifier.weight(1f))
-                CircularProgressIndicator(color = RadioGreen, modifier = Modifier.size(40.dp))
-                Spacer(Modifier.height(14.dp))
-                Text("Starter Spotify...", color = RadioGreen,
-                    fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(6.dp))
-                Text("Trykk tilbake for å komme tilbake til Radio-appen.",
-                    color = RadioGreen.copy(alpha = 0.6f), fontSize = 12.sp,
-                    modifier = Modifier.padding(horizontal = 24.dp),
-                    textAlign = TextAlign.Center)
-                Spacer(Modifier.weight(1f))
-            }
-
-            else -> {
-                Spacer(Modifier.weight(1f))
-
-                currentTrack?.let { track ->
-                    Text(track.title,
-                        fontSize = if (isLandscape) 22.sp else 26.sp,
-                        fontFamily = RadioClockFont, color = RadioGreen,
-                        maxLines = 1, textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(horizontal = 16.dp))
-                    Text(track.artist, fontSize = 13.sp,
-                        color = RadioGreen.copy(alpha = 0.65f),
-                        modifier = Modifier.padding(bottom = 14.dp))
+                    Button(onClick = { spotify.openAuthInBrowser() },
+                        colors = ButtonDefaults.buttonColors(containerColor = RadioGreen)) {
+                        Text("Logg inn med Spotify", color = Color(0xFF0D0D0D), fontWeight = FontWeight.SemiBold)
+                    }
+                    Spacer(Modifier.weight(1f))
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-                    IconButton(onClick = { spotify.skipPrevious() },
-                        modifier = Modifier.size(skipSize).background(Color.White.copy(alpha = 0.08f), CircleShape)) {
-                        Icon(Icons.Default.SkipPrevious, "Forrige", tint = Color.White,
-                            modifier = Modifier.size(iconSkip))
-                    }
-                    IconButton(onClick = { spotify.clearError(); spotify.togglePlayPause() },
-                        modifier = Modifier.size(playSize).background(RadioGreen.copy(alpha = 0.16f), CircleShape)) {
-                        Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            if (isPlaying) "Pause" else "Spill",
-                            tint = RadioGreen, modifier = Modifier.size(iconPlay))
-                    }
-                    IconButton(onClick = { spotify.skipNext() },
-                        modifier = Modifier.size(skipSize).background(Color.White.copy(alpha = 0.08f), CircleShape)) {
-                        Icon(Icons.Default.SkipNext, "Neste", tint = Color.White,
-                            modifier = Modifier.size(iconSkip))
-                    }
+                connecting -> {
+                    Spacer(Modifier.weight(1f))
+                    CircularProgressIndicator(color = RadioGreen, modifier = Modifier.size(44.dp))
+                    Text("Kobler til Spotify...", color = RadioGreen.copy(alpha = 0.7f),
+                        fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
+                    Spacer(Modifier.weight(1f))
                 }
 
-                error?.let { msg ->
-                    if (msg == "NO_DEVICE") {
+                !connected -> {
+                    Spacer(Modifier.weight(1f))
+                    error?.let { msg ->
+                        Text(msg, color = Color(0xFFFF6B6B), fontSize = 13.sp,
+                            modifier = Modifier.padding(horizontal = 16.dp))
                         Spacer(Modifier.height(12.dp))
-                        Button(onClick = { spotify.clearError(); spotify.openSpotifyToPlaylist() },
-                            colors = ButtonDefaults.buttonColors(containerColor = RadioGreen)) {
-                            Text("Start spillelisten i Spotify", color = Color(0xFF0D0D0D),
-                                fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                        TextButton(onClick = { spotify.clearError(); spotify.connect() }) {
+                            Text("Prøv igjen", color = RadioGreen)
+                        }
+                    } ?: Text("Ikke koblet til Spotify", color = RadioGreen.copy(0.6f), fontSize = 13.sp)
+                    Spacer(Modifier.weight(1f))
+                }
+
+                awaitingReturn -> {
+                    Spacer(Modifier.weight(1f))
+                    CircularProgressIndicator(color = RadioGreen, modifier = Modifier.size(40.dp))
+                    Spacer(Modifier.height(14.dp))
+                    Text("Starter Spotify...", color = RadioGreen,
+                        fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(6.dp))
+                    Text("Trykk tilbake for å komme tilbake til Radio-appen.",
+                        color = RadioGreen.copy(alpha = 0.6f), fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 24.dp),
+                        textAlign = TextAlign.Center)
+                    Spacer(Modifier.weight(1f))
+                }
+
+                else -> {
+                    Spacer(Modifier.weight(1f))
+
+                    currentTrack?.let { track ->
+                        Text(track.title,
+                            fontSize = if (isLandscape) 22.sp else 26.sp,
+                            fontFamily = RadioClockFont, color = RadioGreen,
+                            maxLines = 1, textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 16.dp))
+                        Text(track.artist, fontSize = 13.sp,
+                            color = RadioGreen.copy(alpha = 0.65f),
+                            modifier = Modifier.padding(bottom = 14.dp))
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(28.dp)) {
+                        IconButton(onClick = { spotify.skipPrevious() },
+                            modifier = Modifier.size(skipSize).background(Color.White.copy(alpha = 0.08f), CircleShape)) {
+                            Icon(Icons.Default.SkipPrevious, "Forrige", tint = Color.White,
+                                modifier = Modifier.size(iconSkip))
+                        }
+                        IconButton(onClick = { spotify.clearError(); spotify.togglePlayPause() },
+                            modifier = Modifier.size(playSize).background(RadioGreen.copy(alpha = 0.16f), CircleShape)) {
+                            Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                if (isPlaying) "Pause" else "Spill",
+                                tint = RadioGreen, modifier = Modifier.size(iconPlay))
+                        }
+                        IconButton(onClick = { spotify.skipNext() },
+                            modifier = Modifier.size(skipSize).background(Color.White.copy(alpha = 0.08f), CircleShape)) {
+                            Icon(Icons.Default.SkipNext, "Neste", tint = Color.White,
+                                modifier = Modifier.size(iconSkip))
+                        }
+                    }
+
+                    error?.let { msg ->
+                        if (msg == "NO_DEVICE") {
+                            Spacer(Modifier.height(12.dp))
+                            Button(onClick = { spotify.clearError(); spotify.openSpotifyToPlaylist() },
+                                colors = ButtonDefaults.buttonColors(containerColor = RadioGreen)) {
+                                Text("Start spillelisten i Spotify", color = Color(0xFF0D0D0D),
+                                    fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            }
+                        } else {
+                            Spacer(Modifier.height(8.dp))
+                            Text(msg, color = Color(0xFFFF6B6B), fontSize = 11.sp,
+                                modifier = Modifier.padding(horizontal = 16.dp))
+                        }
+                    }
+
+                    Spacer(Modifier.height(20.dp))
+                }
+            }
+        }
+
+        // Flyout tab button — right edge, only when connected landscape
+        if (showFlyoutButton) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .width(30.dp)
+                    .height(80.dp)
+                    .clip(RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp))
+                    .background(DarkGreen)
+                    .clickable { flyoutOpen = true },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.QueueMusic,
+                    contentDescription = "Spilleliste",
+                    tint = RadioGreen,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+
+        // Dim overlay
+        AnimatedVisibility(
+            visible = flyoutOpen,
+            enter = fadeIn(tween(200)),
+            exit  = fadeOut(tween(200)),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.45f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { flyoutOpen = false }
+            )
+        }
+
+        // Flyout panel
+        AnimatedVisibility(
+            visible = flyoutOpen,
+            enter = slideInHorizontally(tween(280)) { it },
+            exit  = slideOutHorizontally(tween(280)) { it },
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .fillMaxHeight()
+                .fillMaxWidth(0.5f)
+        ) {
+            Surface(
+                color = Color(0xFF111827),
+                shadowElevation = 24.dp,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    // Header
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Road trip",
+                            fontSize = 16.sp,
+                            fontFamily = RadioClockFont,
+                            color = RadioGreen,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        IconButton(
+                            onClick = { flyoutOpen = false },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Lukk",
+                                tint = RadioGreen.copy(alpha = 0.7f),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = RadioGreen.copy(alpha = 0.15f))
+
+                    if (tracks.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(
+                                color = RadioGreen,
+                                modifier = Modifier.size(32.dp),
+                                strokeWidth = 2.dp
+                            )
                         }
                     } else {
-                        Spacer(Modifier.height(8.dp))
-                        Text(msg, color = Color(0xFFFF6B6B), fontSize = 11.sp,
-                            modifier = Modifier.padding(horizontal = 16.dp))
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(vertical = 8.dp)
+                        ) {
+                            itemsIndexed(tracks) { index, track ->
+                                val isActive = track.uri == currentTrack?.uri
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            spotify.playTrack(track.uri)
+                                            flyoutOpen = false
+                                        }
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier.width(28.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (isActive) {
+                                            Icon(
+                                                Icons.Default.PlayArrow,
+                                                contentDescription = null,
+                                                tint = RadioGreen,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        } else {
+                                            Text(
+                                                "${index + 1}",
+                                                fontSize = 11.sp,
+                                                color = RadioGreen.copy(alpha = 0.4f)
+                                            )
+                                        }
+                                    }
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            track.title,
+                                            fontSize = 13.sp,
+                                            color = if (isActive) RadioGreen else Color.White.copy(alpha = 0.9f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
+                                        )
+                                        if (track.artist.isNotEmpty()) {
+                                            Text(
+                                                track.artist,
+                                                fontSize = 11.sp,
+                                                color = Color.White.copy(alpha = 0.45f),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
-
-                Spacer(Modifier.height(20.dp))
             }
         }
     }

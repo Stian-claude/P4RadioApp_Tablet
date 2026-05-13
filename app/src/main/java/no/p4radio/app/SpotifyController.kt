@@ -7,6 +7,7 @@ import android.util.Log
 import com.spotify.android.appremote.api.ConnectionParams
 import com.spotify.android.appremote.api.Connector
 import com.spotify.android.appremote.api.SpotifyAppRemote
+import com.spotify.protocol.types.ListItem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -44,10 +45,8 @@ class SpotifyController {
     private val http  = OkHttpClient()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    // App Remote
     private var appRemote: SpotifyAppRemote? = null
 
-    // Web API fallback
     private var accessToken: String? = null
     private var tokenExpiry: Long    = 0L
     private var pollingJob: Job?     = null
@@ -70,15 +69,16 @@ class SpotifyController {
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
 
-    // True while we have opened Spotify and are waiting for the user to return
     private val _awaitingReturn = MutableStateFlow(false)
     val awaitingReturn: StateFlow<Boolean> = _awaitingReturn
+
+    private val _tracks = MutableStateFlow<List<SpotifyTrack>>(emptyList())
+    val tracks: StateFlow<List<SpotifyTrack>> = _tracks
 
     fun setContext(context: Context) {
         contextRef = WeakReference(context)
     }
 
-    // Called from MainActivity.onResume()
     fun onAppResumed() {
         if (!_connected.value) return
         if (_awaitingReturn.value) {
@@ -90,13 +90,11 @@ class SpotifyController {
                 pollOnce()
             }
         }
-        // Try re-connecting App Remote if it dropped
         if (appRemote?.isConnected != true && _connected.value) {
             reconnectAppRemote()
         }
     }
 
-    // Primary connect path — must be called on main thread so App Remote can launch Spotify
     fun connect() {
         if (_connecting.value || _connected.value) return
         _connecting.value = true
@@ -107,33 +105,23 @@ class SpotifyController {
             _error.value = "Intern feil: kontekst mangler"
             return
         }
-
-        // First ensure we have a Web API token (for OAuth check)
         val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val savedRefresh = prefs.getString(KEY_REFRESH, null)
-
         if (savedRefresh == null) {
-            // No token at all — need OAuth first
             _connecting.value = false
             _needsAuth.value  = true
             return
         }
-
-        // We have a token — connect via App Remote (main thread)
         connectAppRemote(ctx)
-
-        // Also refresh Web API token in background for metadata/fallback
         scope.launch {
-            try {
-                refreshUserToken(savedRefresh, ctx)
-            } catch (_: Exception) { }
+            try { refreshUserToken(savedRefresh, ctx) } catch (_: Exception) { }
         }
     }
 
     private fun connectAppRemote(ctx: Context) {
         val params = ConnectionParams.Builder(CLIENT_ID)
             .setRedirectUri(REDIRECT_URI)
-            .showAuthView(false)   // false = fail fast if Spotify not ready, no hanging
+            .showAuthView(false)
             .build()
 
         var settled = false
@@ -151,10 +139,13 @@ class SpotifyController {
                 remote.playerApi.play(PLAYLIST_URI)
                 remote.playerApi.subscribeToPlayerState().setEventCallback { state ->
                     _isPlaying.value = !state.isPaused
-                    val t = state.track
-                    if (t != null) {
+                    state.track?.let { t ->
                         _currentTrack.value = SpotifyTrack(t.uri, t.name, t.artist.name)
                     }
+                }
+                scope.launch {
+                    delay(600)
+                    fetchPlaylistTracks()
                 }
             } else {
                 Log.w("SpotifyCtrl", "App Remote not available — falling back to Web API")
@@ -166,7 +157,6 @@ class SpotifyController {
         SpotifyAppRemote.connect(ctx, params, object : Connector.ConnectionListener {
             override fun onConnected(remote: SpotifyAppRemote) {
                 settle(true, remote)
-                // Fetch state immediately so UI reflects current playback without waiting
                 remote.playerApi.getPlayerState().setResultCallback { state ->
                     _isPlaying.value = !state.isPaused
                     state.track?.let { t ->
@@ -180,7 +170,6 @@ class SpotifyController {
             }
         })
 
-        // Safety timeout: if SDK hangs without calling either callback, fall back after 4 s
         scope.launch {
             delay(4000)
             if (!settled) {
@@ -194,44 +183,34 @@ class SpotifyController {
         val ctx = contextRef?.get() ?: return
         val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         if (prefs.getString(KEY_REFRESH, null) == null) return
-
         val params = ConnectionParams.Builder(CLIENT_ID)
             .setRedirectUri(REDIRECT_URI)
             .showAuthView(false)
             .build()
-
         var settled = false
         SpotifyAppRemote.connect(ctx, params, object : Connector.ConnectionListener {
             override fun onConnected(remote: SpotifyAppRemote) {
                 settled = true
-                Log.d("SpotifyCtrl", "App Remote reconnected")
                 appRemote = remote
                 remote.playerApi.subscribeToPlayerState().setEventCallback { state ->
                     _isPlaying.value = !state.isPaused
-                    val t = state.track
-                    if (t != null) {
+                    state.track?.let { t ->
                         _currentTrack.value = SpotifyTrack(t.uri, t.name, t.artist.name)
                     }
+                }
+                if (_tracks.value.isEmpty()) {
+                    scope.launch { delay(300); fetchPlaylistTracks() }
                 }
             }
             override fun onFailure(throwable: Throwable) {
                 settled = true
-                Log.w("SpotifyCtrl", "App Remote reconnect failed: $throwable")
             }
         })
-        scope.launch {
-            delay(4000)
-            if (!settled) Log.w("SpotifyCtrl", "App Remote reconnect timeout")
-        }
+        scope.launch { delay(4000); if (!settled) Log.w("SpotifyCtrl", "reconnect timeout") }
     }
 
-    // Web API fallback when App Remote fails
     private suspend fun connectViaWebApi() {
-        val ctx = contextRef?.get() ?: run {
-            _connecting.value = false
-            _needsAuth.value  = true
-            return
-        }
+        val ctx = contextRef?.get() ?: run { _connecting.value = false; _needsAuth.value = true; return }
         val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val saved = prefs.getString(KEY_REFRESH, null)
         if (saved != null) {
@@ -242,6 +221,7 @@ class SpotifyController {
                 _needsAuth.value  = false
                 startPolling()
                 ensureSpotifyActive()
+                fetchPlaylistTracks()
             } catch (_: Exception) {
                 ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                     .edit().remove(KEY_REFRESH).apply()
@@ -251,6 +231,68 @@ class SpotifyController {
         } else {
             _connecting.value = false
             _needsAuth.value  = true
+        }
+    }
+
+    // Fetch playlist tracks — tries App Remote contentApi first, falls back to Web API
+    fun fetchPlaylistTracks() {
+        val remote = appRemote
+        if (remote?.isConnected == true) {
+            val item = ListItem(PLAYLIST_URI, PLAYLIST_URI, null, "", "", false, true)
+            remote.contentApi.getChildrenOfItem(item, 100, 0)
+                .setResultCallback { result ->
+                    val list = result.items
+                        .filter { it.playable }
+                        .map { SpotifyTrack(it.uri, it.title, it.subtitle ?: "") }
+                    if (list.isNotEmpty()) {
+                        _tracks.value = list
+                        Log.d("SpotifyCtrl", "Fetched ${list.size} tracks via App Remote")
+                    } else {
+                        scope.launch { fetchTracksViaWebApi() }
+                    }
+                }
+                .setErrorCallback { e ->
+                    Log.w("SpotifyCtrl", "contentApi error: $e")
+                    scope.launch { fetchTracksViaWebApi() }
+                }
+        } else {
+            scope.launch { fetchTracksViaWebApi() }
+        }
+    }
+
+    private suspend fun fetchTracksViaWebApi() {
+        try {
+            ensureUserToken()
+            val token = accessToken ?: return
+            val resp = http.newCall(
+                Request.Builder()
+                    .url("https://api.spotify.com/v1/playlists/$PLAYLIST_ID/tracks?limit=100&fields=items(track(uri,name,artists(name)))")
+                    .header("Authorization", "Bearer $token")
+                    .build()
+            ).execute()
+            if (!resp.isSuccessful) {
+                Log.w("SpotifyCtrl", "fetchTracksViaWebApi: HTTP ${resp.code}")
+                return
+            }
+            val json  = JSONObject(resp.body!!.string())
+            val items = json.optJSONArray("items") ?: return
+            val list  = mutableListOf<SpotifyTrack>()
+            for (i in 0 until items.length()) {
+                val track = items.getJSONObject(i).optJSONObject("track") ?: continue
+                val uri   = track.optString("uri").takeIf { it.isNotEmpty() } ?: continue
+                val name  = track.optString("name")
+                val arr   = track.optJSONArray("artists")
+                val artist = if (arr != null)
+                    (0 until arr.length()).joinToString(", ") { arr.getJSONObject(it).getString("name") }
+                else ""
+                list.add(SpotifyTrack(uri, name, artist))
+            }
+            if (list.isNotEmpty()) {
+                _tracks.value = list
+                Log.d("SpotifyCtrl", "Fetched ${list.size} tracks via Web API")
+            }
+        } catch (e: Exception) {
+            Log.w("SpotifyCtrl", "fetchTracksViaWebApi failed: $e")
         }
     }
 
@@ -276,8 +318,7 @@ class SpotifyController {
             try {
                 val creds = Base64.getEncoder()
                     .encodeToString("$CLIENT_ID:$CLIENT_SECRET".toByteArray())
-                val body = ("grant_type=authorization_code" +
-                    "&code=$code" +
+                val body = ("grant_type=authorization_code&code=$code" +
                     "&redirect_uri=${Uri.encode(REDIRECT_URI)}")
                     .toRequestBody("application/x-www-form-urlencoded".toMediaType())
                 val resp = http.newCall(
@@ -293,14 +334,9 @@ class SpotifyController {
                 accessToken = json.getString("access_token")
                 tokenExpiry = System.currentTimeMillis() + json.getLong("expires_in") * 1000
                 val refresh = json.getString("refresh_token")
-                Log.d("SpotifyCtrl", "Auth OK. Scopes: ${json.optString("scope")}")
                 ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                     .edit().putString(KEY_REFRESH, refresh).apply()
-
-                // Now connect via App Remote on main thread
-                kotlinx.coroutines.withContext(Dispatchers.Main) {
-                    connectAppRemote(ctx)
-                }
+                kotlinx.coroutines.withContext(Dispatchers.Main) { connectAppRemote(ctx) }
             } catch (e: Exception) {
                 _connecting.value = false
                 _needsAuth.value  = true
@@ -309,33 +345,27 @@ class SpotifyController {
         }
     }
 
-    // Web API fallback helpers
     private fun ensureSpotifyActive() {
         scope.launch {
             try {
                 ensureUserToken()
                 val token = accessToken ?: return@launch
                 val deviceId = findDeviceId(token)
-                if (deviceId != null) {
-                    startPlaylistOnDevice(token, deviceId)
-                } else {
+                if (deviceId != null) startPlaylistOnDevice(token, deviceId)
+                else {
                     _awaitingReturn.value = true
                     kotlinx.coroutines.withContext(Dispatchers.Main) { openSpotifyToPlaylist() }
                 }
-            } catch (e: Exception) {
-                Log.w("SpotifyCtrl", "ensureSpotifyActive: $e")
-            }
+            } catch (e: Exception) { Log.w("SpotifyCtrl", "ensureSpotifyActive: $e") }
         }
     }
 
     fun openSpotifyToPlaylist() {
         val ctx = contextRef?.get() ?: return
         try {
-            ctx.startActivity(
-                Intent(Intent.ACTION_VIEW, Uri.parse(PLAYLIST_URI)).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-            )
+            ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PLAYLIST_URI)).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
         } catch (_: Exception) {
             ctx.packageManager.getLaunchIntentForPackage("com.spotify.music")
                 ?.apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
@@ -385,7 +415,7 @@ class SpotifyController {
         val devices = JSONObject(resp.body!!.string()).optJSONArray("devices") ?: return null
         var fallback: String? = null
         for (i in 0 until devices.length()) {
-            val d = devices.getJSONObject(i)
+            val d  = devices.getJSONObject(i)
             val id = d.optString("id").takeIf { it.isNotEmpty() } ?: continue
             if (d.optBoolean("is_active")) return id
             if (fallback == null) fallback = id
@@ -401,11 +431,8 @@ class SpotifyController {
                 .header("Authorization", "Bearer $token")
                 .build()
         ).execute()
-        if (!resp.isSuccessful) {
-            val err = resp.body?.string()
-            Log.w("SpotifyCtrl", "startPlaylist HTTP ${resp.code}: $err")
-            _error.value = friendlyPlaybackError(resp.code, err)
-        }
+        if (!resp.isSuccessful)
+            _error.value = friendlyPlaybackError(resp.code, resp.body?.string())
     }
 
     private fun pollOnce() {
@@ -436,34 +463,26 @@ class SpotifyController {
     private fun startPolling() {
         pollingJob?.cancel()
         pollingJob = scope.launch {
-            while (true) {
-                pollOnce()
-                delay(3000)
-            }
+            while (true) { pollOnce(); delay(3000) }
         }
     }
 
     fun togglePlayPause() {
-        // Try App Remote first
         val remote = appRemote
         if (remote?.isConnected == true) {
-            if (_isPlaying.value) remote.playerApi.pause()
-            else remote.playerApi.resume()
+            if (_isPlaying.value) remote.playerApi.pause() else remote.playerApi.resume()
             return
         }
-        // Web API fallback
         scope.launch {
             try {
                 ensureUserToken()
                 val token = accessToken ?: return@launch
                 if (_isPlaying.value) {
-                    http.newCall(
-                        Request.Builder()
-                            .url("https://api.spotify.com/v1/me/player/pause")
-                            .put("".toRequestBody("application/json".toMediaType()))
-                            .header("Authorization", "Bearer $token")
-                            .build()
-                    ).execute()
+                    http.newCall(Request.Builder()
+                        .url("https://api.spotify.com/v1/me/player/pause")
+                        .put("".toRequestBody("application/json".toMediaType()))
+                        .header("Authorization", "Bearer $token")
+                        .build()).execute()
                 } else {
                     val deviceId = findDeviceId(token)
                     if (deviceId == null) {
@@ -472,13 +491,11 @@ class SpotifyController {
                         return@launch
                     }
                     if (_currentTrack.value != null) {
-                        val resp = http.newCall(
-                            Request.Builder()
-                                .url("https://api.spotify.com/v1/me/player/play?device_id=$deviceId")
-                                .put("{}".toRequestBody("application/json".toMediaType()))
-                                .header("Authorization", "Bearer $token")
-                                .build()
-                        ).execute()
+                        val resp = http.newCall(Request.Builder()
+                            .url("https://api.spotify.com/v1/me/player/play?device_id=$deviceId")
+                            .put("{}".toRequestBody("application/json".toMediaType()))
+                            .header("Authorization", "Bearer $token")
+                            .build()).execute()
                         if (!resp.isSuccessful) startPlaylistOnDevice(token, deviceId)
                     } else {
                         startPlaylistOnDevice(token, deviceId)
@@ -495,13 +512,11 @@ class SpotifyController {
             try {
                 ensureUserToken()
                 val token = accessToken ?: return@launch
-                http.newCall(
-                    Request.Builder()
-                        .url("https://api.spotify.com/v1/me/player/next")
-                        .post("".toRequestBody("application/json".toMediaType()))
-                        .header("Authorization", "Bearer $token")
-                        .build()
-                ).execute()
+                http.newCall(Request.Builder()
+                    .url("https://api.spotify.com/v1/me/player/next")
+                    .post("".toRequestBody("application/json".toMediaType()))
+                    .header("Authorization", "Bearer $token")
+                    .build()).execute()
             } catch (e: Exception) { _error.value = "Feil: ${e.message}" }
         }
     }
@@ -513,24 +528,59 @@ class SpotifyController {
             try {
                 ensureUserToken()
                 val token = accessToken ?: return@launch
-                http.newCall(
-                    Request.Builder()
-                        .url("https://api.spotify.com/v1/me/player/previous")
-                        .post("".toRequestBody("application/json".toMediaType()))
-                        .header("Authorization", "Bearer $token")
-                        .build()
-                ).execute()
+                http.newCall(Request.Builder()
+                    .url("https://api.spotify.com/v1/me/player/previous")
+                    .post("".toRequestBody("application/json".toMediaType()))
+                    .header("Authorization", "Bearer $token")
+                    .build()).execute()
             } catch (e: Exception) { _error.value = "Feil: ${e.message}" }
         }
     }
 
-    private fun friendlyPlaybackError(code: Int, body: String?): String {
-        if (body != null) {
+    fun playTrack(uri: String) {
+        val remote = appRemote
+        if (remote?.isConnected == true) {
+            remote.playerApi.play(uri)
+            return
+        }
+        scope.launch {
             try {
-                val reason = JSONObject(body).optJSONObject("error")?.optString("reason")
-                if (reason == "NO_ACTIVE_DEVICE") return "Ingen aktiv Spotify-enhet."
+                ensureUserToken()
+                val token    = accessToken ?: return@launch
+                val deviceId = findDeviceId(token)
+                val url = "https://api.spotify.com/v1/me/player/play" +
+                    if (deviceId != null) "?device_id=$deviceId" else ""
+                val resp = http.newCall(Request.Builder().url(url)
+                    .put("""{"uris":["$uri"]}""".toRequestBody("application/json".toMediaType()))
+                    .header("Authorization", "Bearer $token")
+                    .build()).execute()
+                if (!resp.isSuccessful) _error.value = friendlyPlaybackError(resp.code, resp.body?.string())
+            } catch (e: Exception) { _error.value = "Feil: ${e.message}" }
+        }
+    }
+
+    fun pauseIfPlaying() {
+        if (!_isPlaying.value) return
+        val remote = appRemote
+        if (remote?.isConnected == true) { remote.playerApi.pause(); return }
+        scope.launch {
+            try {
+                ensureUserToken()
+                val token = accessToken ?: return@launch
+                http.newCall(Request.Builder()
+                    .url("https://api.spotify.com/v1/me/player/pause")
+                    .put("".toRequestBody("application/json".toMediaType()))
+                    .header("Authorization", "Bearer $token")
+                    .build()).execute()
             } catch (_: Exception) { }
         }
+    }
+
+    private fun friendlyPlaybackError(code: Int, body: String?): String {
+        if (body != null) try {
+            val reason = JSONObject(body).optJSONObject("error")?.optString("reason")
+            if (reason == "NO_ACTIVE_DEVICE") return "Ingen aktiv Spotify-enhet."
+        } catch (_: Exception) { }
         return "Avspillingsfeil $code"
     }
 
@@ -546,28 +596,7 @@ class SpotifyController {
         _needsAuth.value      = false
         _awaitingReturn.value = false
         _error.value          = null
-    }
-
-    fun pauseIfPlaying() {
-        if (!_isPlaying.value) return
-        val remote = appRemote
-        if (remote?.isConnected == true) {
-            remote.playerApi.pause()
-            return
-        }
-        scope.launch {
-            try {
-                ensureUserToken()
-                val token = accessToken ?: return@launch
-                http.newCall(
-                    Request.Builder()
-                        .url("https://api.spotify.com/v1/me/player/pause")
-                        .put("".toRequestBody("application/json".toMediaType()))
-                        .header("Authorization", "Bearer $token")
-                        .build()
-                ).execute()
-            } catch (_: Exception) { }
-        }
+        _tracks.value         = emptyList()
     }
 
     fun clearError() { _error.value = null }
