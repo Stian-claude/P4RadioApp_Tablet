@@ -293,46 +293,32 @@ class SpotifyController {
             val token = accessToken
             if (token == null) {
                 _tracksError.value = "Token mangler – logg inn på nytt"
-                Log.w("SpotifyCtrl", "fetchTracksViaWebApi: no access token")
                 return
             }
 
-            // Try base playlist endpoint — /tracks has unexpected 403 despite valid scope
+            // Fetch full playlist (no ?fields= filter so tracks are always included)
             val resp = http.newCall(
                 Request.Builder()
                     .url("https://api.spotify.com/v1/playlists/$PLAYLIST_ID")
                     .header("Authorization", "Bearer $token")
                     .build()
             ).execute()
-
             val bodyStr = resp.body?.string() ?: ""
-            if (!resp.isSuccessful) {
-                val spotifyMsg = try { JSONObject(bodyStr).optJSONObject("error")?.optString("message") ?: bodyStr } catch (_: Exception) { bodyStr }
-                _tracksError.value = "HTTP ${resp.code}: $spotifyMsg"
-                return
-            }
-
-            val plJson     = try { JSONObject(bodyStr) } catch (_: Exception) { null }
-            val tracksObj  = plJson?.optJSONObject("tracks")
-            val items      = tracksObj?.optJSONArray("items")
-            val total      = tracksObj?.optInt("total", -1) ?: -1
-            val itemsCount = items?.length() ?: -1
-
-            if (itemsCount > 0) {
-                val list = parseTrackItems(items!!)
-                if (list.isNotEmpty()) {
-                    _tracks.value = list
-                    _tracksError.value = null
-                    Log.d("SpotifyCtrl", "Fetched ${list.size} tracks via /playlists/{id}")
-                    return
+            if (resp.isSuccessful) {
+                val tracksObj  = JSONObject(bodyStr).optJSONObject("tracks")
+                val items      = tracksObj?.optJSONArray("items")
+                if (items != null && items.length() > 0) {
+                    val list = parseTrackItems(items)
+                    if (list.isNotEmpty()) {
+                        _tracks.value = list
+                        _tracksError.value = null
+                        Log.d("SpotifyCtrl", "Fetched ${list.size} tracks via /playlists/{id}")
+                        return
+                    }
                 }
             }
 
-            // No tracks from base endpoint — show diagnostic and fall through
-            Log.w("SpotifyCtrl", "base endpoint: items=$itemsCount total=$total")
-            _tracksError.value = "base: items=$itemsCount total=$total"
-
-            // Fall through to /tracks endpoint as last resort
+            // Fall through to /tracks endpoint
             val tracksResp = http.newCall(
                 Request.Builder()
                     .url("https://api.spotify.com/v1/playlists/$PLAYLIST_ID/tracks?limit=100")
@@ -341,13 +327,14 @@ class SpotifyController {
             ).execute()
             val tracksBody = tracksResp.body?.string() ?: ""
             if (!tracksResp.isSuccessful) {
-                val msg = try { JSONObject(tracksBody).optJSONObject("error")?.optString("message") ?: tracksBody } catch (_: Exception) { tracksBody }
-                _tracksError.value = "base: items=$itemsCount total=$total | /tracks: HTTP ${tracksResp.code}: $msg"
+                val msg = try {
+                    JSONObject(tracksBody).optJSONObject("error")?.optString("message") ?: tracksBody
+                } catch (_: Exception) { tracksBody }
+                _tracksError.value = "HTTP ${tracksResp.code}: $msg"
                 Log.w("SpotifyCtrl", "/tracks: ${tracksResp.code} — $tracksBody")
                 return
             }
-            val json      = JSONObject(tracksBody)
-            val trackItems = json.optJSONArray("items") ?: run {
+            val trackItems = JSONObject(tracksBody).optJSONArray("items") ?: run {
                 _tracksError.value = "Tom respons fra Spotify"
                 return
             }
@@ -355,7 +342,7 @@ class SpotifyController {
             if (list.isNotEmpty()) {
                 _tracks.value = list
                 _tracksError.value = null
-                Log.d("SpotifyCtrl", "Fetched ${list.size} tracks via Web API")
+                Log.d("SpotifyCtrl", "Fetched ${list.size} tracks via /tracks")
             } else {
                 _tracksError.value = "Ingen sanger funnet"
             }
