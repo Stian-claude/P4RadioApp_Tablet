@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Triggered by Samsung Routines when Kjøring mode starts -->
+    <shortcut
+        android:shortcutId="start_p4"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_start_short"
+        android:shortcutLongLabel="@string/shortcut_start_long">
+        <intent
+            android:action="android.intent.action.MAIN"
+            android:targetPackage="no.radioapp.player"
+            android:targetClass="no.p4radio.app.MainActivity"/>
+    </shortcut>
+
+    <!-- Triggered by Samsung Routines when Kjøring mode ends -->
+    <shortcut
+        android:shortcutId="stop_radio"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_stop_short"
+        android:shortcutLongLabel="@string/shortcut_stop_long">
+        <intent
+            android:action="no.radioapp.player.ACTION_STOP"
+            android:targetPackage="no.radioapp.player"
+            android:targetClass="no.p4radio.app.MainActivity"/>
+    </shortcut>
+
+</shortcuts>

@@ -34,6 +34,10 @@ class MainActivity : ComponentActivity() {
                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
+        if (intent?.action == PlaybackReceiver.ACTION_STOP) {
+            handleStopIntent()
+            return
+        }
         setContent {
             P4RadioTheme {
                 MainScreen(viewModel = viewModel)
@@ -43,12 +47,21 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        if (intent.action == PlaybackReceiver.ACTION_STOP) {
+            handleStopIntent()
+            return
+        }
         viewModel.spotifyController.setContext(this)
         val uri = intent.data ?: return
         if (uri.scheme == "no.radioapp.player" && uri.host == "callback") {
             val code = uri.getQueryParameter("code") ?: return
             viewModel.handleSpotifyAuthCode(code)
         }
+    }
+
+    private fun handleStopIntent() {
+        viewModel.stopAll()
+        finishAndRemoveTask()
     }
 
     override fun onResume() {

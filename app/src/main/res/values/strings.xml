@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Radio</string>
+    <string name="shortcut_start_short">Start P4</string>
+    <string name="shortcut_start_long">Start P4 Radio</string>
+    <string name="shortcut_stop_short">Stopp radio</string>
+    <string name="shortcut_stop_long">Stopp P4 Radio</string>
 </resources>

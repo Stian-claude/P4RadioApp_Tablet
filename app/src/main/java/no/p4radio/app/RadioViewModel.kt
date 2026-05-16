@@ -167,6 +167,13 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearError() { _errorMessage.value = null }
 
+    fun stopAll() {
+        exoPlayer.pause()
+        stopService()
+        spotifyController.pauseIfPlaying()
+        spotifyController.disconnect()
+    }
+
     private fun startService(stationName: String) {
         try {
             val intent = Intent(getApplication(), RadioForegroundService::class.java).apply {

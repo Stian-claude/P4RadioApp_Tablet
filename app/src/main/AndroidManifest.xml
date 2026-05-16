@@ -24,7 +24,9 @@
             android:exported="true"
             android:launchMode="singleTask"
             android:configChanges="orientation|screenSize|screenLayout"
-            android:screenOrientation="unspecified">
+            android:screenOrientation="unspecified"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
@@ -35,7 +37,22 @@
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="no.radioapp.player" android:host="callback"/>
             </intent-filter>
+            <intent-filter>
+                <action android:name="no.radioapp.player.ACTION_STOP"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts"/>
         </activity>
+
+        <receiver
+            android:name=".PlaybackReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="no.radioapp.player.ACTION_STOP"/>
+            </intent-filter>
+        </receiver>
 
         <service
             android:name=".RadioForegroundService"
