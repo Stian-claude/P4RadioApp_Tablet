@@ -11,8 +11,8 @@ android {
         applicationId "no.radioapp.player"
         minSdk 26
         targetSdk 34
-        versionCode 21
-        versionName "3.10"
+        versionCode 22
+        versionName "3.11"
     }
 
     buildTypes {

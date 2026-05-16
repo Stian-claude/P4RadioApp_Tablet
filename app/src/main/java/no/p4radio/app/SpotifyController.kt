@@ -34,6 +34,7 @@ class SpotifyController {
         const val REDIRECT_URI  = "no.radioapp.player://callback"
         const val PLAYLIST_ID   = "2kBChSTA8UEmfnbHycHFh9"
         const val PLAYLIST_URI  = "spotify:playlist:$PLAYLIST_ID"
+        const val ERROR_NO_DEVICE = "NO_DEVICE"
         private const val PREFS       = "spotify"
         private const val KEY_REFRESH = "refresh_token"
         private const val SCOPES      =
@@ -72,9 +73,6 @@ class SpotifyController {
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
 
-    private val _awaitingReturn = MutableStateFlow(false)
-    val awaitingReturn: StateFlow<Boolean> = _awaitingReturn
-
     private val _tracks = MutableStateFlow<List<SpotifyTrack>>(emptyList())
     val tracks: StateFlow<List<SpotifyTrack>> = _tracks
 
@@ -84,25 +82,13 @@ class SpotifyController {
     private val _tracksError = MutableStateFlow<String?>(null)
     val tracksError: StateFlow<String?> = _tracksError
 
-    private val _needsTracksReauth = MutableStateFlow(false)
-    val needsTracksReauth: StateFlow<Boolean> = _needsTracksReauth
-
     fun setContext(context: Context) {
         contextRef = WeakReference(context)
     }
 
     fun onAppResumed() {
         if (!_connected.value) return
-        if (_awaitingReturn.value) {
-            _awaitingReturn.value = false
-            scope.launch {
-                delay(800)
-                pollOnce()
-                delay(1500)
-                pollOnce()
-            }
-        }
-        if (appRemote?.isConnected != true && _connected.value) {
+        if (appRemote?.isConnected != true) {
             reconnectAppRemote()
         }
     }
@@ -369,57 +355,6 @@ class SpotifyController {
         }
     }
 
-    private suspend fun fetchTracksViaClientCredentials() {
-        try {
-            val creds = Base64.getEncoder()
-                .encodeToString("$CLIENT_ID:$CLIENT_SECRET".toByteArray())
-            val tokenResp = http.newCall(
-                Request.Builder()
-                    .url("https://accounts.spotify.com/api/token")
-                    .post("grant_type=client_credentials"
-                        .toRequestBody("application/x-www-form-urlencoded".toMediaType()))
-                    .header("Authorization", "Basic $creds")
-                    .build()
-            ).execute()
-            if (!tokenResp.isSuccessful) {
-                _tracksError.value = "App-token feil: HTTP ${tokenResp.code}"
-                return
-            }
-            val appToken = JSONObject(tokenResp.body!!.string()).getString("access_token")
-
-            val tracksResp = http.newCall(
-                Request.Builder()
-                    .url("https://api.spotify.com/v1/playlists/$PLAYLIST_ID/tracks?limit=100")
-                    .header("Authorization", "Bearer $appToken")
-                    .build()
-            ).execute()
-            val tracksBody = tracksResp.body?.string() ?: ""
-            if (!tracksResp.isSuccessful) {
-                _tracksError.value = if (tracksResp.code == 404)
-                    "Spillelisten er privat – gjør den offentlig i Spotify for å vise den her"
-                else
-                    "HTTP ${tracksResp.code}"
-                Log.w("SpotifyCtrl", "client_credentials /tracks: ${tracksResp.code} $tracksBody")
-                return
-            }
-            val items = JSONObject(tracksBody).optJSONArray("items") ?: run {
-                _tracksError.value = "Ingen sanger i respons"
-                return
-            }
-            val list = parseTrackItems(items)
-            if (list.isNotEmpty()) {
-                _tracks.value = list
-                _tracksError.value = null
-                Log.d("SpotifyCtrl", "Fetched ${list.size} tracks via client credentials")
-            } else {
-                _tracksError.value = "Ingen sanger funnet"
-            }
-        } catch (e: Exception) {
-            _tracksError.value = "Feil: ${e.message}"
-            Log.w("SpotifyCtrl", "fetchTracksViaClientCredentials failed: $e")
-        }
-    }
-
     private fun parseTrackItems(items: org.json.JSONArray): List<SpotifyTrack> {
         val list = mutableListOf<SpotifyTrack>()
         for (i in 0 until items.length()) {
@@ -507,8 +442,8 @@ class SpotifyController {
                         startPlaylistOnDevice(token, deviceId)
                     }
                 } else {
-                    // Ingen aktiv enhet — ikke tving Spotify til å åpne seg
-                    _error.value = "Ingen aktiv Spotify-enhet. Åpne Spotify manuelt."
+                    // Ingen aktiv enhet — vis feil med knapp i UI
+                    _error.value = ERROR_NO_DEVICE
                 }
             } catch (e: Exception) { Log.w("SpotifyCtrl", "ensureSpotifyActive: $e") }
         }
@@ -641,7 +576,7 @@ class SpotifyController {
                 } else {
                     val deviceId = findDeviceId(token)
                     if (deviceId == null) {
-                        _error.value = "Ingen aktiv Spotify-enhet. Åpne Spotify manuelt."
+                        _error.value = ERROR_NO_DEVICE
                         return@launch
                     }
                     if (_currentTrack.value != null) {
@@ -748,7 +683,7 @@ class SpotifyController {
     private fun friendlyPlaybackError(code: Int, body: String?): String {
         if (body != null) try {
             val reason = JSONObject(body).optJSONObject("error")?.optString("reason")
-            if (reason == "NO_ACTIVE_DEVICE") return "Ingen aktiv Spotify-enhet."
+            if (reason == "NO_ACTIVE_DEVICE") return ERROR_NO_DEVICE
         } catch (_: Exception) { }
         return "Avspillingsfeil $code"
     }
@@ -758,24 +693,16 @@ class SpotifyController {
         pollingJob = null
         appRemote?.let { SpotifyAppRemote.disconnect(it) }
         appRemote = null
-        _connected.value      = false
-        _connecting.value     = false
-        _isPlaying.value      = false
-        _currentTrack.value   = null
-        _needsAuth.value      = false
-        _awaitingReturn.value = false
-        _error.value          = null
-        _tracks.value            = emptyList()
-        _tracksLoading.value     = false
-        _tracksError.value       = null
-        _needsTracksReauth.value = false
+        _connected.value    = false
+        _connecting.value   = false
+        _isPlaying.value    = false
+        _currentTrack.value = null
+        _needsAuth.value    = false
+        _error.value        = null
+        _tracks.value        = emptyList()
+        _tracksLoading.value = false
+        _tracksError.value   = null
     }
 
     fun clearError() { _error.value = null }
-
-    fun reauthorize() {
-        _needsTracksReauth.value = false
-        _tracksError.value = null
-        openAuthInBrowser()
-    }
 }

@@ -268,24 +268,22 @@ fun SpotifyContent(
     clockTime: String, dateText: String, isLandscape: Boolean
 ) {
     val spotify        = viewModel.spotifyController
-    val needsAuth      by spotify.needsAuth.collectAsState()
-    val connecting     by spotify.connecting.collectAsState()
-    val connected      by spotify.connected.collectAsState()
-    val awaitingReturn by spotify.awaitingReturn.collectAsState()
-    val currentTrack   by spotify.currentTrack.collectAsState()
-    val isPlaying      by spotify.isPlaying.collectAsState()
-    val error          by spotify.error.collectAsState()
-    val tracks            by spotify.tracks.collectAsState()
-    val tracksLoading     by spotify.tracksLoading.collectAsState()
-    val tracksError       by spotify.tracksError.collectAsState()
-    val needsTracksReauth by spotify.needsTracksReauth.collectAsState()
+    val needsAuth    by spotify.needsAuth.collectAsState()
+    val connecting   by spotify.connecting.collectAsState()
+    val connected    by spotify.connected.collectAsState()
+    val currentTrack by spotify.currentTrack.collectAsState()
+    val isPlaying    by spotify.isPlaying.collectAsState()
+    val error        by spotify.error.collectAsState()
+    val tracks       by spotify.tracks.collectAsState()
+    val tracksLoading by spotify.tracksLoading.collectAsState()
+    val tracksError   by spotify.tracksError.collectAsState()
 
     val playSize = if (isLandscape) 100.dp else 104.dp
     val skipSize = if (isLandscape) 74.dp  else 76.dp
     val iconPlay = if (isLandscape) 56.dp  else 58.dp
-    val iconSkip = if (isLandscape) 42.dp  else 42.dp
+    val iconSkip = 42.dp
 
-    val showFlyoutButton = isLandscape && connected && !awaitingReturn && !connecting && !needsAuth
+    val showFlyoutButton = isLandscape && connected && !connecting && !needsAuth
     var flyoutOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(flyoutOpen) {
@@ -345,20 +343,6 @@ fun SpotifyContent(
                             Text("Prøv igjen", color = RadioGreen)
                         }
                     } ?: Text("Ikke koblet til Spotify", color = RadioGreen.copy(0.6f), fontSize = 13.sp)
-                    Spacer(Modifier.weight(1f))
-                }
-
-                awaitingReturn -> {
-                    Spacer(Modifier.weight(1f))
-                    CircularProgressIndicator(color = RadioGreen, modifier = Modifier.size(40.dp))
-                    Spacer(Modifier.height(14.dp))
-                    Text("Starter Spotify...", color = RadioGreen,
-                        fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(6.dp))
-                    Text("Trykk tilbake for å komme tilbake til Radio-appen.",
-                        color = RadioGreen.copy(alpha = 0.6f), fontSize = 12.sp,
-                        modifier = Modifier.padding(horizontal = 24.dp),
-                        textAlign = TextAlign.Center)
                     Spacer(Modifier.weight(1f))
                 }
 
@@ -517,23 +501,7 @@ fun SpotifyContent(
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     modifier = Modifier.padding(horizontal = 16.dp)
                                 ) {
-                                    if (needsTracksReauth) {
-                                        Text(
-                                            "Appen mangler tilgang til spillelister.\nLogg inn på nytt for å gi tilgang.",
-                                            color = Color(0xFFFF6B6B).copy(alpha = 0.85f),
-                                            fontSize = 12.sp,
-                                            textAlign = TextAlign.Center
-                                        )
-                                        Spacer(Modifier.height(12.dp))
-                                        Button(
-                                            onClick = { spotify.reauthorize() },
-                                            colors = ButtonDefaults.buttonColors(containerColor = RadioGreen)
-                                        ) {
-                                            Text("Gi tilgang til spillelister", color = Color(0xFF0D0D0D),
-                                                fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-                                        }
-                                    } else {
-                                        Text(
+                                    Text(
                                             tracksError ?: "Kunne ikke hente spilleliste",
                                             color = Color(0xFFFF6B6B).copy(alpha = 0.85f),
                                             fontSize = 12.sp,
@@ -543,7 +511,6 @@ fun SpotifyContent(
                                         TextButton(onClick = { spotify.fetchPlaylistTracks() }) {
                                             Text("Prøv igjen", color = RadioGreen, fontSize = 12.sp)
                                         }
-                                    }
                                 }
                             }
                         }

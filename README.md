@@ -10,8 +10,11 @@ Android-app for P4-radiostasjoner og Spotify, designet for bruk med telefonen li
 - Digital klokke med dag og dato (Playfair Display-font)
 - Automatisk fullskjerm / immersive mode
 - Skjermen holdes på mens appen er aktiv
-- Foreground service med mediekontroller i notification-feltet (radio)
+- Foreground service med medienotifikasjon (radio)
 - Automatisk pause av Spotify ved rotasjon til portrett
+- Vises over låseskjerm og slår på skjermen automatisk ved oppstart
+- App-snarveier: "Start P4" og "Stopp radio" (langt trykk på ikonet)
+- Samsung Kjøring-modus: start via "Åpne Radio" i Modi og rutiner
 
 ## Krav
 
@@ -21,11 +24,17 @@ Android-app for P4-radiostasjoner og Spotify, designet for bruk med telefonen li
 ## Bygg
 
 ```bash
-./gradlew assembleDebug
+./gradlew assembleRelease
 ```
 
-Signert release-APK bygges automatisk via GitHub Actions ved push til `main`.  
-APK lastes opp som artifact under **Actions → siste kjøring → Artifacts**.
+Signer med:
+```bash
+java -jar apksigner.jar sign \
+  --ks p4radio.keystore \
+  --ks-pass pass:<passord> \
+  --out P4Radio-vX.Y.apk \
+  app-release-unsigned.apk
+```
 
 ## Spotify-oppsett
 
@@ -34,10 +43,16 @@ App Remote SDK krever at appen er registrert i [Spotify Developer Dashboard](htt
 | Felt | Verdi |
 |------|-------|
 | Package name | `no.radioapp.player` |
-| SHA-1 (debug) | `68:8C:EE:FE:2C:9B:91:B5:78:E7:46:D2:BA:DA:C1:A6:FB:95:2E:B4` |
 | Redirect URI | `no.radioapp.player://callback` |
 
 > **Merk:** `CLIENT_SECRET` i `SpotifyController.kt` er kun egnet for privat/personlig bruk. Ikke gjør repoet offentlig med hemmeligheten synlig.
+
+## Samsung Kjøring-modus
+
+For å starte appen automatisk når du kjører:
+
+1. **Modi og rutiner → Kjøring → Andre handlinger → Åpne Radio** (starter P4 automatisk)
+2. For stopp: lag en **Rutine** med trigger "Bluetooth kobler fra [bil]" → handling "Tving stopp: Radio"
 
 ## Teknisk stack
 

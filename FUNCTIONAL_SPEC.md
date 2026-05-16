@@ -2,7 +2,7 @@
 
 ## Oversikt
 
-P4 Radio er en Android-app designet primært for bruk i **landscape-modus** (telefonen liggende). Appen kombinerer norsk radiosteraming og Spotify-avspilling i ett enkelt grensesnitt dominert av en stor digital klokke.
+P4 Radio er en Android-app designet primært for bruk i **landscape-modus** (telefonen liggende). Appen kombinerer norsk radiostreaming og Spotify-avspilling i ett enkelt grensesnitt dominert av en stor digital klokke.
 
 ---
 
@@ -47,7 +47,7 @@ P4 Radio er en Android-app designet primært for bruk i **landscape-modus** (tel
 ### Portrett-modus (sekundær)
 
 - Viser kun radio-visning (ikke Spotify-kontroller)
-- Klokke og kontroller er sentrert samlet midt på skjermen
+- Klokke og kontroller er sentrert midt på skjermen
 - Spotify pauses automatisk ved overgang til portrett
 
 ---
@@ -82,7 +82,7 @@ P4 Radio er en Android-app designet primært for bruk i **landscape-modus** (tel
 
 ### Foreground Service
 
-- Startes ved play, stoppes ved pause/switch til Spotify/app lukkes
+- Startes ved play, stoppes ved pause / switch til Spotify / app lukkes
 - Viser stasjonsnavn i notification
 - Holder skjermen på mens appen er i forgrunnen (`FLAG_KEEP_SCREEN_ON`)
 
@@ -100,13 +100,18 @@ Finnes refresh_token?
    Nei → vis "Logg inn med Spotify"-knapp
    Ja  → prøv App Remote SDK (showAuthView=false, timeout 4 sek)
               │
-        Lyktes? → koble til, abonner på spillerstatus, start spilleliste
+        Lyktes? → koble til, abonner på spillerstatus, gjenoppta/start spilleliste
         Feilet? → Web API-fallback:
                     refresh token → finn aktiv enhet
-                    Enhet funnet? → start spilleliste direkte
-                    Ingen enhet?  → åpne Spotify-appen til spillelisten automatisk
-                                    vis "Starter Spotify..." med spinner
+                    Enhet funnet? → start/gjenoppta avspilling via Web API
+                    Ingen enhet?  → vis feilmelding med knapp for manuell åpning
 ```
+
+### Gjenopptak etter Radio-modus
+
+App Remote holdes **ikke** frakoblet ved bytte til Radio. Ved retur til Spotify:
+- App Remote fortsatt tilkoblet → `resume()` (ingen Spotify-åpning)
+- App Remote frakoblet → ny tilkobling → `play(lastKnownTrackUri)` for å starte fra riktig sang
 
 ### Første gangs innlogging (OAuth)
 
@@ -142,18 +147,48 @@ Finnes refresh_token?
 
 | Feil | Håndtering |
 |------|------------|
-| Ingen aktiv enhet (NO_DEVICE) | Knapp: "Start spillelisten i Spotify" |
+| Ingen aktiv enhet (`NO_DEVICE`) | Knapp: "Start spillelisten i Spotify" |
 | Token utgått | Automatisk refresh via refresh_token |
 | App Remote timeout (>4 sek) | Fallback til Web API |
 | Nettverksfeil | Feilmelding vises, "Prøv igjen"-knapp |
 
 ---
 
-## Tekniske begrensninger (Android 16 / One UI 8.5)
+## Skjerm- og låseskjerm-håndtering
 
-- Spotify App Remote SDK `showAuthView(true)` henger på Android 16 pga. bakgrunns-aktivitetsbegrensninger
-- Løsning: `showAuthView(false)` med 4-sekunders timeout → Web API-fallback
-- App Remote fungerer stille hvis Spotify allerede kjører i bakgrunnen
+Appen er konfigurert for kjørebruk:
+
+| Funksjon | Implementasjon |
+|----------|----------------|
+| Slår på skjermen ved oppstart | `android:turnScreenOn="true"` + `setTurnScreenOn(true)` |
+| Vises over låseskjerm | `android:showWhenLocked="true"` + `setShowWhenLocked(true)` |
+| Låser opp automatisk (uten PIN) | `KeyguardManager.requestDismissKeyguard()` |
+| Holder skjermen på | `FLAG_KEEP_SCREEN_ON` i `onResume` |
+
+---
+
+## App-snarveier
+
+Tilgjengelig ved langt trykk på app-ikonet:
+
+| Snarvei | Handling |
+|---------|----------|
+| Start P4 | Åpner appen og starter P4 |
+| Stopp radio | Stopper avspilling og lukker appen |
+
+Stopp-kommandoen kan også sendes via broadcast (`no.radioapp.player.ACTION_STOP`) — brukes av Samsung Kjøring-modus-rutiner.
+
+---
+
+## Samsung Kjøring-modus
+
+### Start (automatisk)
+Modi og rutiner → Kjøring → Andre handlinger → **Åpne Radio**
+
+Appen starter P4 automatisk, slår på skjermen og vises over låseskjermen.
+
+### Stopp (via Rutine)
+Rutiner → + → Trigger: Bluetooth kobler fra [bil] → Handling: Tving stopp: Radio
 
 ---
 
@@ -166,6 +201,15 @@ Finnes refresh_token?
 | FOREGROUND_SERVICE | Bakgrunnsavspilling radio |
 | FOREGROUND_SERVICE_MEDIA_PLAYBACK | Krav for media foreground service |
 | POST_NOTIFICATIONS | Medienotifikasjon (Android 13+) |
+
+---
+
+## Tekniske begrensninger (Android 16 / One UI 8.5)
+
+- Spotify App Remote SDK `showAuthView(true)` henger på Android 16 pga. bakgrunns-aktivitetsbegrensninger
+- Løsning: `showAuthView(false)` med 4-sekunders timeout → Web API-fallback
+- App Remote fungerer stille hvis Spotify allerede kjører i bakgrunnen
+- `play()` via App Remote kan ta Spotify til forgrunnen — bruker `resume()` der det er mulig
 
 ---
 
@@ -183,4 +227,7 @@ Finnes refresh_token?
 | 3.5 | Portrett-layout sentrert, større kontroller |
 | 3.6 | Større kontroller i landscape |
 | 3.7 | Spotify spillelistepanel (flyout) med sangliste og klikk-for-spill |
-| 3.8 | Flyout til venstre kant, Radio/Spotify-knapper til høyre (50% større), fikset Spotify API `item`-felt, fikset portrett-pause |
+| 3.8 | Flyout til venstre, knapper til høyre (50% større), Spotify API `item`-felt, portrett-pause fix |
+| 3.9 | Skjerm-opplåsing: slår på skjerm og viser over låseskjerm ved oppstart |
+| 3.10 | Fikset Spotify-app åpning ved modusskifte (bruker `resume()` i stedet for `play()`) |
+| 3.11 | Kodeopprydding: fjernet dødkode (`fetchTracksViaClientCredentials`, `awaitingReturn`, `needsTracksReauth`), `ERROR_NO_DEVICE`-konstant, ExoPlayer re-setup kun ved IDLE/ENDED |

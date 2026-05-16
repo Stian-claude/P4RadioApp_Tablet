@@ -93,8 +93,12 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
                 // Keep App Remote alive so we can resume the exact track when returning
                 _currentStation.value?.let { station ->
                     val url = resolvedUrls[station.id] ?: return
-                    exoPlayer.setMediaItem(MediaItem.fromUri(url))
-                    exoPlayer.prepare()
+                    // Re-setup only if player is stopped/ended — not when merely paused
+                    if (exoPlayer.playbackState == Player.STATE_IDLE ||
+                        exoPlayer.playbackState == Player.STATE_ENDED) {
+                        exoPlayer.setMediaItem(MediaItem.fromUri(url))
+                        exoPlayer.prepare()
+                    }
                     exoPlayer.play()
                     startService(station.name)
                 }
