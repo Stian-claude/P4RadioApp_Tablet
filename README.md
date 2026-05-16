@@ -6,6 +6,7 @@ Android-app for P4-radiostasjoner og Spotify, designet for bruk med telefonen li
 
 - **Radio** — P4, P5 Hits, P6 Rock, P7 Klem, NRK P1, P2 og P3 via live-streams
 - **Spotify** — kobler til Spotify-appen og spiller en fast spilleliste via App Remote SDK
+- **Spillelistepanel** — flyout fra venstre kant i landscape Spotify-modus med alle sanger; trykk for å spille
 - Digital klokke med dag og dato (Playfair Display-font)
 - Automatisk fullskjerm / immersive mode
 - Skjermen holdes på mens appen er aktiv

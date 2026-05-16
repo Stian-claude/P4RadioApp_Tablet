@@ -12,18 +12,37 @@ P4 Radio er en Android-app designet primært for bruk i **landscape-modus** (tel
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│ [Radio ]          09:15                              │
-│ [Spotify]   Onsdag 13. Mai 2026                      │
+│ [♫]       09:15                      [ Radio  ]     │
+│           Onsdag 13. Mai 2026        [ Spotify]     │
 │                                                      │
-│                                                      │
-│              Sangnavn / Stasjon                      │
-│           [|◀]   [▶/⏸]   [▶|]                       │
+│           Sangnavn / Stasjon                         │
+│        [|◀]   [▶/⏸]   [▶|]                          │
 └─────────────────────────────────────────────────────┘
 ```
 
-- **Venstre kant:** Radio- og Spotify-knapper (aktiv = lys grønn, inaktiv = mørk grønn)
+- **Venstre kant (Spotify):** Stor tab-knapp (♫) som åpner spillelistepanel
+- **Høyre kant:** Radio- og Spotify-knapper (aktiv = lys grønn, inaktiv = mørk grønn)
 - **Midten:** Klokke øverst, innhold og kontroller nederst
-- Hele skjermen er klikbar areal for knapper
+
+#### Spillelistepanel (flyout)
+
+```
+┌─────────────────┬────────────────────────────────────┐
+│ Road trip     X │                                    │
+│─────────────────│                                    │
+│ ▶ Dancing On    │        09:15                       │
+│   Calum Scott   │  Onsdag 13. Mai 2026               │
+│ 2 Blinding L... │                                    │
+│   The Weeknd    │   Dancing On  /  Calum Scott       │
+│ 3 ...           │   [|◀]  [▶/⏸]  [▶|]               │
+└─────────────────┴────────────────────────────────────┘
+```
+
+- Glir inn fra venstre med animasjon
+- Viser sangnummer, tittel og artist
+- Aktiv sang markert med grønn ▶ og fet skrift
+- Trykk på sang → starter avspilling og lukker panelet
+- Henter sangliste via Spotify Web API (`/me/playlists` → `tracks.href`)
 
 ### Portrett-modus (sekundær)
 
@@ -100,8 +119,10 @@ Finnes refresh_token?
 
 ### Spilleliste
 
-- Fast spilleliste: `spotify:playlist:2kBChSTA8UEmfnbHycHFh9`
+- Fast spilleliste: `spotify:playlist:2kBChSTA8UEmfnbHycHFh9` ("Road trip")
 - Avspilling håndteres av Spotify-appen (App Remote SDK)
+- Sangliste vises i flyout-panel (venstre kant i landscape)
+- Hentes via Spotify Web API; bruker `item`-feltet (Spotify API 2024-format)
 
 ### Kontroller (Spotify)
 
@@ -161,3 +182,5 @@ Finnes refresh_token?
 | 3.4 | NRK P1/P2/P3 lagt til, Spotify pauses ved Radio-bytte |
 | 3.5 | Portrett-layout sentrert, større kontroller |
 | 3.6 | Større kontroller i landscape |
+| 3.7 | Spotify spillelistepanel (flyout) med sangliste og klikk-for-spill |
+| 3.8 | Flyout til venstre kant, Radio/Spotify-knapper til høyre (50% større), fikset Spotify API `item`-felt, fikset portrett-pause |
