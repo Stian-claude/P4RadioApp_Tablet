@@ -47,6 +47,9 @@ class SpotifyController {
 
     private var appRemote: SpotifyAppRemote? = null
 
+    // Keeps last known track URI across disconnect/reconnect so we can resume instead of restarting
+    private var lastKnownTrackUri: String? = null
+
     private var accessToken: String? = null
     private var tokenExpiry: Long    = 0L
     private var pollingJob: Job?     = null
@@ -145,10 +148,16 @@ class SpotifyController {
                 _connecting.value = false
                 _needsAuth.value  = false
                 _error.value      = null
-                remote.playerApi.play(PLAYLIST_URI)
+                // Resume if we were already playing a track; otherwise start playlist from top
+                if (lastKnownTrackUri != null) {
+                    remote.playerApi.resume()
+                } else {
+                    remote.playerApi.play(PLAYLIST_URI)
+                }
                 remote.playerApi.subscribeToPlayerState().setEventCallback { state ->
                     _isPlaying.value = !state.isPaused
                     state.track?.let { t ->
+                        lastKnownTrackUri = t.uri
                         _currentTrack.value = SpotifyTrack(t.uri, t.name, t.artist.name)
                     }
                 }
@@ -204,6 +213,7 @@ class SpotifyController {
                 remote.playerApi.subscribeToPlayerState().setEventCallback { state ->
                     _isPlaying.value = !state.isPaused
                     state.track?.let { t ->
+                        lastKnownTrackUri = t.uri
                         _currentTrack.value = SpotifyTrack(t.uri, t.name, t.artist.name)
                     }
                 }
@@ -585,6 +595,7 @@ class SpotifyController {
             val artist = if (arr != null)
                 (0 until arr.length()).joinToString(", ") { arr.getJSONObject(it).getString("name") }
             else ""
+            lastKnownTrackUri = uri
             _currentTrack.value = SpotifyTrack(uri, name, artist)
         } catch (_: Exception) { }
     }
