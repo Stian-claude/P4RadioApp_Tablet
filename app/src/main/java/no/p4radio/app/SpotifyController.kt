@@ -491,8 +491,22 @@ class SpotifyController {
                 ensureUserToken()
                 val token = accessToken ?: return@launch
                 val deviceId = findDeviceId(token)
-                if (deviceId != null) startPlaylistOnDevice(token, deviceId)
-                else {
+                if (deviceId != null) {
+                    val uri = lastKnownTrackUri
+                    if (uri != null) {
+                        // Resume specific track rather than restarting playlist
+                        val resp = http.newCall(
+                            Request.Builder()
+                                .url("https://api.spotify.com/v1/me/player/play?device_id=$deviceId")
+                                .put("""{"uris":["$uri"]}""".toRequestBody("application/json".toMediaType()))
+                                .header("Authorization", "Bearer $token")
+                                .build()
+                        ).execute()
+                        if (!resp.isSuccessful) startPlaylistOnDevice(token, deviceId)
+                    } else {
+                        startPlaylistOnDevice(token, deviceId)
+                    }
+                } else {
                     _awaitingReturn.value = true
                     kotlinx.coroutines.withContext(Dispatchers.Main) { openSpotifyToPlaylist() }
                 }
@@ -701,12 +715,14 @@ class SpotifyController {
     }
 
     fun resumePlayback() {
+        val uri    = lastKnownTrackUri
         val remote = appRemote
         if (remote?.isConnected == true) {
-            remote.playerApi.resume()
+            if (uri != null) remote.playerApi.play(uri)
+            else remote.playerApi.resume()
             return
         }
-        // App Remote disconnected while in Radio mode — reconnect and play known track
+        // App Remote disconnected — reconnect (will use lastKnownTrackUri in settle)
         val ctx = contextRef?.get() ?: run { _needsAuth.value = true; return }
         _connecting.value = true
         connectAppRemote(ctx)
