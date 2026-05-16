@@ -170,7 +170,7 @@ fun RadioContent(
 
     if (isLandscape) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 12.dp),
+            modifier = Modifier.fillMaxSize().padding(start = 24.dp, end = 118.dp, top = 12.dp, bottom = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(clockTime, fontSize = clockSize.value.sp, fontFamily = RadioClockFont,
@@ -299,10 +299,11 @@ fun SpotifyContent(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(
-                    horizontal = 20.dp,
-                    vertical = 12.dp
-                )
-                .padding(start = if (showFlyoutButton) 60.dp else 0.dp),
+                    start  = 20.dp + if (showFlyoutButton) 60.dp else 0.dp,
+                    end    = 20.dp + if (isLandscape) 118.dp else 0.dp,
+                    top    = 12.dp,
+                    bottom = 12.dp
+                ),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(clockTime,
