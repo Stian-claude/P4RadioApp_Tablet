@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -88,7 +89,7 @@ fun MainScreen(viewModel: RadioViewModel) {
 
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-    var prevLandscape by remember { mutableStateOf(isLandscape) }
+    var prevLandscape by rememberSaveable { mutableStateOf(isLandscape) }
     LaunchedEffect(isLandscape) {
         if (!isLandscape && prevLandscape && viewModel.appMode.value == AppMode.SPOTIFY) {
             viewModel.spotifyController.pauseIfPlaying()
@@ -107,14 +108,14 @@ fun MainScreen(viewModel: RadioViewModel) {
             Column(
                 modifier = Modifier
                     .fillMaxHeight()
-                    .width(88.dp)
-                    .padding(start = 14.dp)
-                    .align(Alignment.CenterStart),
+                    .width(118.dp)
+                    .padding(end = 14.dp)
+                    .align(Alignment.CenterEnd),
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 ModeButton("Radio",   appMode == AppMode.RADIO)   { viewModel.setMode(AppMode.RADIO) }
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(12.dp))
                 ModeButton("Spotify", appMode == AppMode.SPOTIFY) { viewModel.setMode(AppMode.SPOTIFY) }
             }
         } else {
@@ -129,15 +130,15 @@ fun MainScreen(viewModel: RadioViewModel) {
 fun ModeButton(label: String, isActive: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .width(68.dp).height(38.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .width(102.dp).height(57.dp)
+            .clip(RoundedCornerShape(10.dp))
             .background(if (isActive) RadioGreen else DarkGreen)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text       = label,
-            fontSize   = 13.sp,
+            fontSize   = 19.sp,
             fontWeight = FontWeight.SemiBold,
             color      = if (isActive) Color(0xFF0D0D0D) else RadioGreen.copy(alpha = 0.7f)
         )
@@ -301,7 +302,7 @@ fun SpotifyContent(
                     horizontal = 20.dp,
                     vertical = 12.dp
                 )
-                .padding(end = if (showFlyoutButton) 30.dp else 0.dp),
+                .padding(start = if (showFlyoutButton) 60.dp else 0.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(clockTime,
@@ -414,14 +415,14 @@ fun SpotifyContent(
             }
         }
 
-        // Flyout tab button — right edge, only when connected landscape
+        // Flyout tab button — left edge, only when connected landscape
         if (showFlyoutButton) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .width(30.dp)
-                    .height(80.dp)
-                    .clip(RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp))
+                    .align(Alignment.CenterStart)
+                    .width(60.dp)
+                    .height(160.dp)
+                    .clip(RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp))
                     .background(DarkGreen)
                     .clickable { flyoutOpen = true },
                 contentAlignment = Alignment.Center
@@ -430,7 +431,7 @@ fun SpotifyContent(
                     Icons.Default.QueueMusic,
                     contentDescription = "Spilleliste",
                     tint = RadioGreen,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(36.dp)
                 )
             }
         }
@@ -456,10 +457,10 @@ fun SpotifyContent(
         // Flyout panel
         AnimatedVisibility(
             visible = flyoutOpen,
-            enter = slideInHorizontally(tween(280)) { it },
-            exit  = slideOutHorizontally(tween(280)) { it },
+            enter = slideInHorizontally(tween(280)) { -it },
+            exit  = slideOutHorizontally(tween(280)) { -it },
             modifier = Modifier
-                .align(Alignment.CenterEnd)
+                .align(Alignment.CenterStart)
                 .fillMaxHeight()
                 .fillMaxWidth(0.5f)
         ) {
