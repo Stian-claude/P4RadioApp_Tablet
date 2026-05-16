@@ -507,8 +507,8 @@ class SpotifyController {
                         startPlaylistOnDevice(token, deviceId)
                     }
                 } else {
-                    _awaitingReturn.value = true
-                    kotlinx.coroutines.withContext(Dispatchers.Main) { openSpotifyToPlaylist() }
+                    // Ingen aktiv enhet — ikke tving Spotify til å åpne seg
+                    _error.value = "Ingen aktiv Spotify-enhet. Åpne Spotify manuelt."
                 }
             } catch (e: Exception) { Log.w("SpotifyCtrl", "ensureSpotifyActive: $e") }
         }
@@ -641,8 +641,7 @@ class SpotifyController {
                 } else {
                     val deviceId = findDeviceId(token)
                     if (deviceId == null) {
-                        _awaitingReturn.value = true
-                        kotlinx.coroutines.withContext(Dispatchers.Main) { openSpotifyToPlaylist() }
+                        _error.value = "Ingen aktiv Spotify-enhet. Åpne Spotify manuelt."
                         return@launch
                     }
                     if (_currentTrack.value != null) {
@@ -715,14 +714,15 @@ class SpotifyController {
     }
 
     fun resumePlayback() {
-        val uri    = lastKnownTrackUri
         val remote = appRemote
         if (remote?.isConnected == true) {
-            if (uri != null) remote.playerApi.play(uri)
-            else remote.playerApi.resume()
+            // Bruk resume() — kaller IKKE play() som kan åpne Spotify-appen
+            // Hvis ingenting spilte tidligere, start spillelisten
+            if (lastKnownTrackUri != null) remote.playerApi.resume()
+            else remote.playerApi.play(PLAYLIST_URI)
             return
         }
-        // App Remote disconnected — reconnect (will use lastKnownTrackUri in settle)
+        // App Remote koblet fra — reconnect (settle vil bruke lastKnownTrackUri)
         val ctx = contextRef?.get() ?: run { _needsAuth.value = true; return }
         _connecting.value = true
         connectAppRemote(ctx)
