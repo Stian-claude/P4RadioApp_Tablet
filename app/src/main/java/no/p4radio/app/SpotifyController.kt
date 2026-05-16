@@ -148,9 +148,10 @@ class SpotifyController {
                 _connecting.value = false
                 _needsAuth.value  = false
                 _error.value      = null
-                // Resume if we were already playing a track; otherwise start playlist from top
-                if (lastKnownTrackUri != null) {
-                    remote.playerApi.resume()
+                // If we know which track was playing, start that track; otherwise start playlist from top
+                val startUri = lastKnownTrackUri
+                if (startUri != null) {
+                    remote.playerApi.play(startUri)
                 } else {
                     remote.playerApi.play(PLAYLIST_URI)
                 }
@@ -697,6 +698,18 @@ class SpotifyController {
                 if (!resp.isSuccessful) _error.value = friendlyPlaybackError(resp.code, resp.body?.string())
             } catch (e: Exception) { _error.value = "Feil: ${e.message}" }
         }
+    }
+
+    fun resumePlayback() {
+        val remote = appRemote
+        if (remote?.isConnected == true) {
+            remote.playerApi.resume()
+            return
+        }
+        // App Remote disconnected while in Radio mode — reconnect and play known track
+        val ctx = contextRef?.get() ?: run { _needsAuth.value = true; return }
+        _connecting.value = true
+        connectAppRemote(ctx)
     }
 
     fun pauseIfPlaying() {

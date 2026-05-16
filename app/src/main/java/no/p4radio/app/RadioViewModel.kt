@@ -90,7 +90,7 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
         when (mode) {
             AppMode.RADIO -> {
                 spotifyController.pauseIfPlaying()
-                spotifyController.disconnect()
+                // Keep App Remote alive so we can resume the exact track when returning
                 _currentStation.value?.let { station ->
                     val url = resolvedUrls[station.id] ?: return
                     exoPlayer.setMediaItem(MediaItem.fromUri(url))
@@ -102,7 +102,12 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
             AppMode.SPOTIFY -> {
                 exoPlayer.pause()
                 stopService()
-                spotifyController.connect()
+                // If already connected, just resume — no need to reconnect
+                if (spotifyController.connected.value) {
+                    spotifyController.resumePlayback()
+                } else {
+                    spotifyController.connect()
+                }
             }
         }
     }
