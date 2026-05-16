@@ -290,59 +290,65 @@ class SpotifyController {
     private suspend fun fetchTracksViaWebApi() {
         try {
             ensureUserToken()
-            val token = accessToken
-            if (token == null) {
-                _tracksError.value = "Token mangler – logg inn på nytt"
-                return
-            }
+            val token = accessToken ?: run { _tracksError.value = "Token mangler – logg inn på nytt"; return }
 
-            // Fetch full playlist (no ?fields= filter so tracks are always included)
-            val resp = http.newCall(
-                Request.Builder()
-                    .url("https://api.spotify.com/v1/playlists/$PLAYLIST_ID")
-                    .header("Authorization", "Bearer $token")
-                    .build()
-            ).execute()
-            val bodyStr = resp.body?.string() ?: ""
-            if (resp.isSuccessful) {
-                val tracksObj  = JSONObject(bodyStr).optJSONObject("tracks")
-                val items      = tracksObj?.optJSONArray("items")
-                if (items != null && items.length() > 0) {
-                    val list = parseTrackItems(items)
-                    if (list.isNotEmpty()) {
-                        _tracks.value = list
-                        _tracksError.value = null
-                        Log.d("SpotifyCtrl", "Fetched ${list.size} tracks via /playlists/{id}")
-                        return
+            // Step 1: get the tracks href from /me/playlists so we use Spotify's own link
+            var tracksHref: String? = null
+            var offset = 0
+            outer@ while (offset < 200) {
+                val meResp = http.newCall(
+                    Request.Builder()
+                        .url("https://api.spotify.com/v1/me/playlists?limit=50&offset=$offset")
+                        .header("Authorization", "Bearer $token")
+                        .build()
+                ).execute()
+                if (!meResp.isSuccessful) break
+                val meJson  = JSONObject(meResp.body?.string() ?: "")
+                val plItems = meJson.optJSONArray("items") ?: break
+                for (i in 0 until plItems.length()) {
+                    val pl = plItems.getJSONObject(i)
+                    if (pl.optString("id") == PLAYLIST_ID) {
+                        // Prefer newer "items" field, fall back to deprecated "tracks"
+                        tracksHref = pl.optJSONObject("items")?.optString("href")?.takeIf { it.isNotEmpty() }
+                            ?: pl.optJSONObject("tracks")?.optString("href")?.takeIf { it.isNotEmpty() }
+                        break@outer
                     }
                 }
+                val next = meJson.optString("next").takeIf { it.isNotEmpty() && it != "null" } ?: break
+                offset += 50
             }
 
-            // Fall through to /tracks endpoint
+            // Step 2: fetch tracks via the href
+            val url = (tracksHref ?: "https://api.spotify.com/v1/playlists/$PLAYLIST_ID/tracks")
+                .let { if ("limit=" !in it) "$it?limit=100" else it }
+            Log.d("SpotifyCtrl", "tracks url: $url")
             val tracksResp = http.newCall(
                 Request.Builder()
-                    .url("https://api.spotify.com/v1/playlists/$PLAYLIST_ID/tracks?limit=100")
+                    .url(url)
                     .header("Authorization", "Bearer $token")
                     .build()
             ).execute()
             val tracksBody = tracksResp.body?.string() ?: ""
             if (!tracksResp.isSuccessful) {
                 val msg = try {
-                    JSONObject(tracksBody).optJSONObject("error")?.optString("message") ?: tracksBody
-                } catch (_: Exception) { tracksBody }
-                _tracksError.value = "HTTP ${tracksResp.code}: $msg"
-                Log.w("SpotifyCtrl", "/tracks: ${tracksResp.code} — $tracksBody")
+                    JSONObject(tracksBody).optJSONObject("error")?.optString("message") ?: tracksBody.take(80)
+                } catch (_: Exception) { tracksBody.take(80) }
+                _tracksError.value = if (tracksHref != null) "href HTTP ${tracksResp.code}: $msg"
+                                     else "HTTP ${tracksResp.code}: $msg"
+                Log.w("SpotifyCtrl", "tracks fetch: ${tracksResp.code} — $tracksBody")
                 return
             }
-            val trackItems = JSONObject(tracksBody).optJSONArray("items") ?: run {
-                _tracksError.value = "Tom respons fra Spotify"
+            val respJson   = JSONObject(tracksBody)
+            val trackItems = respJson.optJSONArray("items") ?: run {
+                val keys = respJson.keys().asSequence().toList().joinToString(",")
+                _tracksError.value = "Ingen items-felt. Nøkler: [$keys]"
                 return
             }
             val list = parseTrackItems(trackItems)
             if (list.isNotEmpty()) {
                 _tracks.value = list
                 _tracksError.value = null
-                Log.d("SpotifyCtrl", "Fetched ${list.size} tracks via /tracks")
+                Log.d("SpotifyCtrl", "Fetched ${list.size} tracks")
             } else {
                 _tracksError.value = "Ingen sanger funnet"
             }
@@ -406,7 +412,8 @@ class SpotifyController {
     private fun parseTrackItems(items: org.json.JSONArray): List<SpotifyTrack> {
         val list = mutableListOf<SpotifyTrack>()
         for (i in 0 until items.length()) {
-            val track = items.getJSONObject(i).optJSONObject("track") ?: continue
+            val obj   = items.getJSONObject(i)
+            val track = obj.optJSONObject("item") ?: obj.optJSONObject("track") ?: continue
             val uri   = track.optString("uri").takeIf { it.isNotEmpty() } ?: continue
             val name  = track.optString("name")
             val arr   = track.optJSONArray("artists")
