@@ -1,4 +1,4 @@
-package no.p4radio.app
+﻿package no.p4radio.app
 
 import android.app.Application
 import android.content.Intent
@@ -9,9 +9,11 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -45,6 +47,9 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
 
     private val resolvedUrls = mutableMapOf<String, String>()
 
+    private var retryJob: Job? = null
+    private var retryCount = 0
+
     private val exoPlayer: ExoPlayer = ExoPlayer.Builder(application).build().apply {
         addListener(object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) {
@@ -52,12 +57,27 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
             }
             override fun onPlaybackStateChanged(state: Int) {
                 _isBuffering.value = state == Player.STATE_BUFFERING
-                if (state == Player.STATE_READY) _errorMessage.value = null
+                if (state == Player.STATE_READY) {
+                    _errorMessage.value = null
+                    retryCount = 0
+                    retryJob?.cancel()
+                }
             }
             override fun onPlayerError(error: PlaybackException) {
-                _errorMessage.value = "Kunne ikke koble til. Sjekk nettforbindelsen."
-                _isPlaying.value = false
-                _isBuffering.value = false
+                val isIoError = error.errorCode in 2001..2008
+                if (isIoError && retryCount < 5) {
+                    retryCount++
+                    retryJob?.cancel()
+                    retryJob = viewModelScope.launch {
+                        delay(retryCount * 1500L)
+                        if (_appMode.value == AppMode.RADIO) retryCurrentStation()
+                    }
+                } else {
+                    retryCount = 0
+                    _errorMessage.value = "Kunne ikke koble til. Sjekk nettforbindelsen."
+                    _isPlaying.value = false
+                    _isBuffering.value = false
+                }
             }
         })
     }
@@ -90,10 +110,8 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
         when (mode) {
             AppMode.RADIO -> {
                 spotifyController.pauseIfPlaying()
-                // Keep App Remote alive so we can resume the exact track when returning
                 _currentStation.value?.let { station ->
                     val url = resolvedUrls[station.id] ?: return
-                    // Re-setup only if player is stopped/ended — not when merely paused
                     if (exoPlayer.playbackState == Player.STATE_IDLE ||
                         exoPlayer.playbackState == Player.STATE_ENDED) {
                         exoPlayer.setMediaItem(MediaItem.fromUri(url))
@@ -106,7 +124,6 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
             AppMode.SPOTIFY -> {
                 exoPlayer.pause()
                 stopService()
-                // If already connected, just resume — no need to reconnect
                 if (spotifyController.connected.value) {
                     spotifyController.resumePlayback()
                 } else {
@@ -132,6 +149,8 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
         }
         _currentStation.value = station
         _errorMessage.value = null
+        retryCount = 0
+        retryJob?.cancel()
         exoPlayer.stop()
         exoPlayer.clearMediaItems()
         exoPlayer.setMediaItem(MediaItem.fromUri(url))
@@ -178,6 +197,16 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
         spotifyController.disconnect()
     }
 
+    private fun retryCurrentStation() {
+        val station = _currentStation.value ?: return
+        val url = resolvedUrls[station.id] ?: return
+        exoPlayer.stop()
+        exoPlayer.clearMediaItems()
+        exoPlayer.setMediaItem(MediaItem.fromUri(url))
+        exoPlayer.prepare()
+        exoPlayer.play()
+    }
+
     private fun startService(stationName: String) {
         try {
             val intent = Intent(getApplication(), RadioForegroundService::class.java).apply {
@@ -203,6 +232,7 @@ class RadioViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
+        retryJob?.cancel()
         exoPlayer.release()
         spotifyController.disconnect()
         stopService()
