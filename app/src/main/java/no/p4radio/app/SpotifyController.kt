@@ -303,8 +303,8 @@ class SpotifyController {
             val token = accessToken ?: run { _tracksError.value = "Token mangler – logg inn på nytt"; return }
             val playlistId = _currentPlaylistId.value
 
-            // Forsøk 1: /playlists/{id}/tracks
-            val tracksUrl = "https://api.spotify.com/v1/playlists/$playlistId/tracks?limit=100&market=from_token"
+            // Forsøk 1: direkte tracks-endpoint
+            val tracksUrl = "https://api.spotify.com/v1/playlists/$playlistId/tracks?limit=100"
             Log.d("SpotifyCtrl", "tracks url: $tracksUrl")
             val tracksResp = http.newCall(
                 Request.Builder().url(tracksUrl).header("Authorization", "Bearer $token").build()
@@ -317,21 +317,22 @@ class SpotifyController {
                 if (list.isNotEmpty()) {
                     _tracks.value = list
                     _tracksError.value = null
-                    Log.d("SpotifyCtrl", "Fetched ${list.size} tracks via /tracks")
+                    Log.d("SpotifyCtrl", "Fetched ${list.size} tracks")
                     return
                 }
             }
 
-            // Forsøk 2: /playlists/{id} — henter tracks fra spillelisteobjektet
-            Log.w("SpotifyCtrl", "tracks endpoint: ${tracksResp.code}, trying full playlist object")
-            val playlistUrl = "https://api.spotify.com/v1/playlists/$playlistId?market=from_token"
-            val plResp  = http.newCall(
-                Request.Builder().url(playlistUrl).header("Authorization", "Bearer $token").build()
+            // Forsøk 2: spillelisteobjektet (tracks embeddet)
+            Log.w("SpotifyCtrl", "tracks endpoint ${tracksResp.code}, trying /playlists/{id}")
+            val plResp = http.newCall(
+                Request.Builder()
+                    .url("https://api.spotify.com/v1/playlists/$playlistId")
+                    .header("Authorization", "Bearer $token")
+                    .build()
             ).execute()
-            val plBody  = plResp.body?.string() ?: ""
-
             if (plResp.isSuccessful) {
-                val items = JSONObject(plBody).optJSONObject("tracks")?.optJSONArray("items")
+                val items = JSONObject(plResp.body?.string() ?: "")
+                    .optJSONObject("tracks")?.optJSONArray("items")
                 val list  = if (items != null) parseTrackItems(items) else emptyList()
                 if (list.isNotEmpty()) {
                     _tracks.value = list
@@ -341,13 +342,14 @@ class SpotifyController {
                 }
             }
 
-            // Vis faktisk feilmelding fra Spotify
-            val spotifyMsg = try {
-                JSONObject(tracksBody).optJSONObject("error")?.optString("message")
-            } catch (_: Exception) { null }
-            val code = tracksResp.code
-            _tracksError.value = "HTTP $code${if (spotifyMsg != null) ": $spotifyMsg" else ""}"
-            Log.w("SpotifyCtrl", "tracks failed $code — $tracksBody")
+            // Kunne ikke hente sangliste — vis nøytral melding
+            if (tracksResp.code == 403) {
+                _tracksError.value = "Sangliste ikke tilgjengelig for denne spillelisten"
+            } else {
+                val msg = try { JSONObject(tracksBody).optJSONObject("error")?.optString("message") } catch (_: Exception) { null }
+                _tracksError.value = "HTTP ${tracksResp.code}${if (msg != null) ": $msg" else ""}"
+            }
+            Log.w("SpotifyCtrl", "tracks failed ${tracksResp.code} — $tracksBody")
         } catch (e: Exception) {
             _tracksError.value = "Feil: ${e.message}"
             Log.w("SpotifyCtrl", "fetchTracksViaWebApi failed: $e")
