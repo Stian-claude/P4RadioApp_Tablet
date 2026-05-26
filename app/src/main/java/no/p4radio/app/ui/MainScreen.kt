@@ -12,11 +12,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.QueueMusic
@@ -277,6 +280,10 @@ fun SpotifyContent(
     val tracks       by spotify.tracks.collectAsState()
     val tracksLoading by spotify.tracksLoading.collectAsState()
     val tracksError   by spotify.tracksError.collectAsState()
+    val currentPlaylistName by spotify.currentPlaylistName.collectAsState()
+    val currentPlaylistId   by spotify.currentPlaylistId.collectAsState()
+    val userPlaylists       by spotify.userPlaylists.collectAsState()
+    val playlistsLoading    by spotify.playlistsLoading.collectAsState()
 
     val playSize = if (isLandscape) 100.dp else 104.dp
     val skipSize = if (isLandscape) 74.dp  else 76.dp
@@ -285,11 +292,13 @@ fun SpotifyContent(
 
     val showFlyoutButton = isLandscape && connected && !connecting && !needsAuth
     var flyoutOpen by remember { mutableStateOf(false) }
+    var showPlaylistPicker by remember { mutableStateOf(false) }
 
     LaunchedEffect(flyoutOpen) {
         if (flyoutOpen && tracks.isEmpty()) {
             spotify.fetchPlaylistTracks()
         }
+        if (!flyoutOpen) showPlaylistPicker = false
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -455,7 +464,7 @@ fun SpotifyContent(
                 modifier = Modifier.fillMaxSize()
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
-                    // Header
+                    // Header with clickable playlist name
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -463,13 +472,33 @@ fun SpotifyContent(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            "Road trip",
-                            fontSize = 16.sp,
-                            fontFamily = RadioClockFont,
-                            color = RadioGreen,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable {
+                                    showPlaylistPicker = !showPlaylistPicker
+                                    if (showPlaylistPicker && userPlaylists.isEmpty()) {
+                                        spotify.fetchUserPlaylists()
+                                    }
+                                }
+                                .padding(horizontal = 6.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                currentPlaylistName,
+                                fontSize = 16.sp,
+                                fontFamily = RadioClockFont,
+                                color = RadioGreen,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Icon(
+                                if (showPlaylistPicker) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = "Velg spilleliste",
+                                tint = RadioGreen.copy(alpha = 0.7f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                         IconButton(
                             onClick = { flyoutOpen = false },
                             modifier = Modifier.size(32.dp)
@@ -485,23 +514,85 @@ fun SpotifyContent(
 
                     HorizontalDivider(color = RadioGreen.copy(alpha = 0.15f))
 
-                    if (tracks.isEmpty()) {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (tracksLoading) {
+                    if (showPlaylistPicker) {
+                        // Playlist picker
+                        if (playlistsLoading) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator(
                                     color = RadioGreen,
                                     modifier = Modifier.size(32.dp),
                                     strokeWidth = 2.dp
                                 )
-                            } else {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    modifier = Modifier.padding(horizontal = 16.dp)
-                                ) {
-                                    Text(
+                            }
+                        } else if (userPlaylists.isEmpty()) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text(
+                                    "Ingen spillelister funnet",
+                                    color = Color.White.copy(alpha = 0.5f),
+                                    fontSize = 13.sp
+                                )
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(vertical = 8.dp)
+                            ) {
+                                items(userPlaylists) { playlist ->
+                                    val isActive = playlist.id == currentPlaylistId
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                spotify.selectPlaylist(playlist)
+                                                showPlaylistPicker = false
+                                            }
+                                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier.width(22.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (isActive) {
+                                                Icon(
+                                                    Icons.Default.PlayArrow,
+                                                    contentDescription = null,
+                                                    tint = RadioGreen,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
+                                        Text(
+                                            playlist.name,
+                                            fontSize = 13.sp,
+                                            color = if (isActive) RadioGreen else Color.White.copy(alpha = 0.9f),
+                                            fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // Track list
+                        if (tracks.isEmpty()) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (tracksLoading) {
+                                    CircularProgressIndicator(
+                                        color = RadioGreen,
+                                        modifier = Modifier.size(32.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier.padding(horizontal = 16.dp)
+                                    ) {
+                                        Text(
                                             tracksError ?: "Kunne ikke hente spilleliste",
                                             color = Color(0xFFFF6B6B).copy(alpha = 0.85f),
                                             fontSize = 12.sp,
@@ -511,62 +602,63 @@ fun SpotifyContent(
                                         TextButton(onClick = { spotify.fetchPlaylistTracks() }) {
                                             Text("Prøv igjen", color = RadioGreen, fontSize = 12.sp)
                                         }
+                                    }
                                 }
                             }
-                        }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(vertical = 8.dp)
-                        ) {
-                            itemsIndexed(tracks) { index, track ->
-                                val isActive = track.uri == currentTrack?.uri
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            spotify.playTrack(track.uri)
-                                            flyoutOpen = false
-                                        }
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(
-                                        modifier = Modifier.width(28.dp),
-                                        contentAlignment = Alignment.Center
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(vertical = 8.dp)
+                            ) {
+                                itemsIndexed(tracks) { index, track ->
+                                    val isActive = track.uri == currentTrack?.uri
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                spotify.playTrack(track.uri)
+                                                flyoutOpen = false
+                                            }
+                                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        if (isActive) {
-                                            Icon(
-                                                Icons.Default.PlayArrow,
-                                                contentDescription = null,
-                                                tint = RadioGreen,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                        } else {
-                                            Text(
-                                                "${index + 1}",
-                                                fontSize = 11.sp,
-                                                color = RadioGreen.copy(alpha = 0.4f)
-                                            )
+                                        Box(
+                                            modifier = Modifier.width(28.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (isActive) {
+                                                Icon(
+                                                    Icons.Default.PlayArrow,
+                                                    contentDescription = null,
+                                                    tint = RadioGreen,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            } else {
+                                                Text(
+                                                    "${index + 1}",
+                                                    fontSize = 11.sp,
+                                                    color = RadioGreen.copy(alpha = 0.4f)
+                                                )
+                                            }
                                         }
-                                    }
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            track.title,
-                                            fontSize = 13.sp,
-                                            color = if (isActive) RadioGreen else Color.White.copy(alpha = 0.9f),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
-                                        )
-                                        if (track.artist.isNotEmpty()) {
+                                        Column(modifier = Modifier.weight(1f)) {
                                             Text(
-                                                track.artist,
-                                                fontSize = 11.sp,
-                                                color = Color.White.copy(alpha = 0.45f),
+                                                track.title,
+                                                fontSize = 13.sp,
+                                                color = if (isActive) RadioGreen else Color.White.copy(alpha = 0.9f),
                                                 maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
+                                                overflow = TextOverflow.Ellipsis,
+                                                fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
                                             )
+                                            if (track.artist.isNotEmpty()) {
+                                                Text(
+                                                    track.artist,
+                                                    fontSize = 11.sp,
+                                                    color = Color.White.copy(alpha = 0.45f),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
                                         }
                                     }
                                 }
