@@ -256,6 +256,10 @@ class SpotifyController {
         if (_tracksLoading.value) return
         _tracksLoading.value = true
         _tracksError.value = null
+        fetchPlaylistTracksInternal(retryCount = 0)
+    }
+
+    private fun fetchPlaylistTracksInternal(retryCount: Int) {
         val remote = appRemote
         if (remote?.isConnected == true) {
             val playlistUri  = _currentPlaylistUri.value
@@ -263,7 +267,7 @@ class SpotifyController {
             val item = ListItem(playlistUri, playlistUri, null, playlistName, "", false, true)
             remote.contentApi.getChildrenOfItem(item, 50, 0)
                 .setResultCallback { result ->
-                    Log.d("SpotifyCtrl", "contentApi: ${result.items.size} raw items")
+                    Log.d("SpotifyCtrl", "contentApi attempt ${retryCount + 1}: ${result.items.size} raw items")
                     val list = result.items
                         .filter { it.uri.isNotEmpty() }
                         .map { SpotifyTrack(it.uri, it.title, it.subtitle ?: "") }
@@ -271,10 +275,15 @@ class SpotifyController {
                         _tracks.value = list
                         _tracksError.value = null
                         _tracksLoading.value = false
-                        Log.d("SpotifyCtrl", "Fetched ${list.size} tracks via App Remote contentApi")
+                        Log.d("SpotifyCtrl", "Fetched ${list.size} tracks via contentApi")
+                    } else if (retryCount < 2) {
+                        Log.w("SpotifyCtrl", "contentApi returned 0 items, retrying in ${(retryCount + 1) * 1000}ms")
+                        scope.launch {
+                            delay((retryCount + 1) * 1000L)
+                            fetchPlaylistTracksInternal(retryCount + 1)
+                        }
                     } else {
-                        Log.w("SpotifyCtrl", "contentApi: ${result.items.size} items, 0 with URI — falling back")
-                        _tracksError.value = "contentApi: ${result.items.size} items (0 brukbare)"
+                        Log.w("SpotifyCtrl", "contentApi gave 0 items after 3 attempts — trying Web API")
                         scope.launch {
                             fetchTracksViaWebApi()
                             _tracksLoading.value = false
@@ -282,11 +291,17 @@ class SpotifyController {
                     }
                 }
                 .setErrorCallback { e ->
-                    Log.w("SpotifyCtrl", "contentApi error: $e")
-                    _tracksError.value = "contentApi feil: $e"
-                    scope.launch {
-                        fetchTracksViaWebApi()
-                        _tracksLoading.value = false
+                    Log.w("SpotifyCtrl", "contentApi error (attempt ${retryCount + 1}): $e")
+                    if (retryCount < 2) {
+                        scope.launch {
+                            delay((retryCount + 1) * 1000L)
+                            fetchPlaylistTracksInternal(retryCount + 1)
+                        }
+                    } else {
+                        scope.launch {
+                            fetchTracksViaWebApi()
+                            _tracksLoading.value = false
+                        }
                     }
                 }
         } else {
