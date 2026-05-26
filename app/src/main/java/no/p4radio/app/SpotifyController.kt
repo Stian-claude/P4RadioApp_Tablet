@@ -328,7 +328,10 @@ class SpotifyController {
             }
 
             val url = (tracksHref ?: "https://api.spotify.com/v1/playlists/$targetPlaylistId/tracks")
-                .let { if ("limit=" !in it) "$it?limit=100" else it }
+                .let {
+                    val withMarket = if ("market=" !in it) (if ("?" in it) "$it&market=from_token" else "$it?market=from_token") else it
+                    if ("limit=" !in withMarket) "$withMarket&limit=100" else withMarket
+                }
             Log.d("SpotifyCtrl", "tracks url: $url")
             val tracksResp = http.newCall(
                 Request.Builder()
@@ -341,7 +344,7 @@ class SpotifyController {
                 if (tracksHref != null && tracksResp.code == 403) {
                     // href Forbidden — vanlig for fulgte/offentlige playlister; prøv direkte endpoint
                     Log.w("SpotifyCtrl", "href 403, retrying with direct endpoint")
-                    val directUrl = "https://api.spotify.com/v1/playlists/$targetPlaylistId/tracks?limit=100"
+                    val directUrl = "https://api.spotify.com/v1/playlists/$targetPlaylistId/tracks?limit=100&market=from_token"
                     val directResp = http.newCall(
                         Request.Builder()
                             .url(directUrl)
