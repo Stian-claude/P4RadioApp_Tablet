@@ -301,97 +301,53 @@ class SpotifyController {
         try {
             ensureUserToken()
             val token = accessToken ?: run { _tracksError.value = "Token mangler – logg inn på nytt"; return }
-            val targetPlaylistId = _currentPlaylistId.value
+            val playlistId = _currentPlaylistId.value
 
-            var tracksHref: String? = null
-            var offset = 0
-            outer@ while (offset < 200) {
-                val meResp = http.newCall(
-                    Request.Builder()
-                        .url("https://api.spotify.com/v1/me/playlists?limit=50&offset=$offset")
-                        .header("Authorization", "Bearer $token")
-                        .build()
-                ).execute()
-                if (!meResp.isSuccessful) break
-                val meJson  = JSONObject(meResp.body?.string() ?: "")
-                val plItems = meJson.optJSONArray("items") ?: break
-                for (i in 0 until plItems.length()) {
-                    val pl = plItems.getJSONObject(i)
-                    if (pl.optString("id") == targetPlaylistId) {
-                        tracksHref = pl.optJSONObject("items")?.optString("href")?.takeIf { it.isNotEmpty() }
-                            ?: pl.optJSONObject("tracks")?.optString("href")?.takeIf { it.isNotEmpty() }
-                        break@outer
-                    }
-                }
-                val next = meJson.optString("next").takeIf { it.isNotEmpty() && it != "null" } ?: break
-                offset += 50
-            }
-
-            val url = (tracksHref ?: "https://api.spotify.com/v1/playlists/$targetPlaylistId/tracks")
-                .let {
-                    val withMarket = if ("market=" !in it) (if ("?" in it) "$it&market=from_token" else "$it?market=from_token") else it
-                    if ("limit=" !in withMarket) "$withMarket&limit=100" else withMarket
-                }
-            Log.d("SpotifyCtrl", "tracks url: $url")
+            // Forsøk 1: /playlists/{id}/tracks
+            val tracksUrl = "https://api.spotify.com/v1/playlists/$playlistId/tracks?limit=100&market=from_token"
+            Log.d("SpotifyCtrl", "tracks url: $tracksUrl")
             val tracksResp = http.newCall(
-                Request.Builder()
-                    .url(url)
-                    .header("Authorization", "Bearer $token")
-                    .build()
+                Request.Builder().url(tracksUrl).header("Authorization", "Bearer $token").build()
             ).execute()
             val tracksBody = tracksResp.body?.string() ?: ""
-            if (!tracksResp.isSuccessful) {
-                if (tracksHref != null && tracksResp.code == 403) {
-                    // href Forbidden — vanlig for fulgte/offentlige playlister; prøv direkte endpoint
-                    Log.w("SpotifyCtrl", "href 403, retrying with direct endpoint")
-                    val directUrl = "https://api.spotify.com/v1/playlists/$targetPlaylistId/tracks?limit=100&market=from_token"
-                    val directResp = http.newCall(
-                        Request.Builder()
-                            .url(directUrl)
-                            .header("Authorization", "Bearer $token")
-                            .build()
-                    ).execute()
-                    val directBody = directResp.body?.string() ?: ""
-                    if (!directResp.isSuccessful) {
-                        _tracksError.value = "HTTP ${directResp.code}"
-                        return
-                    }
-                    val directItems = JSONObject(directBody).optJSONArray("items") ?: run {
-                        _tracksError.value = "Ingen sanger funnet"
-                        return
-                    }
-                    val list = parseTrackItems(directItems)
-                    if (list.isNotEmpty()) {
-                        _tracks.value = list
-                        _tracksError.value = null
-                        Log.d("SpotifyCtrl", "Fetched ${list.size} tracks via direct endpoint")
-                    } else {
-                        _tracksError.value = "Ingen sanger funnet"
-                    }
+
+            if (tracksResp.isSuccessful) {
+                val items = JSONObject(tracksBody).optJSONArray("items")
+                val list  = if (items != null) parseTrackItems(items) else emptyList()
+                if (list.isNotEmpty()) {
+                    _tracks.value = list
+                    _tracksError.value = null
+                    Log.d("SpotifyCtrl", "Fetched ${list.size} tracks via /tracks")
                     return
                 }
-                val msg = try {
-                    JSONObject(tracksBody).optJSONObject("error")?.optString("message") ?: tracksBody.take(80)
-                } catch (_: Exception) { tracksBody.take(80) }
-                _tracksError.value = if (tracksHref != null) "href HTTP ${tracksResp.code}: $msg"
-                                     else "HTTP ${tracksResp.code}: $msg"
-                Log.w("SpotifyCtrl", "tracks fetch: ${tracksResp.code} — $tracksBody")
-                return
             }
-            val respJson   = JSONObject(tracksBody)
-            val trackItems = respJson.optJSONArray("items") ?: run {
-                val keys = respJson.keys().asSequence().toList().joinToString(",")
-                _tracksError.value = "Ingen items-felt. Nøkler: [$keys]"
-                return
+
+            // Forsøk 2: /playlists/{id} — henter tracks fra spillelisteobjektet
+            Log.w("SpotifyCtrl", "tracks endpoint: ${tracksResp.code}, trying full playlist object")
+            val playlistUrl = "https://api.spotify.com/v1/playlists/$playlistId?market=from_token"
+            val plResp  = http.newCall(
+                Request.Builder().url(playlistUrl).header("Authorization", "Bearer $token").build()
+            ).execute()
+            val plBody  = plResp.body?.string() ?: ""
+
+            if (plResp.isSuccessful) {
+                val items = JSONObject(plBody).optJSONObject("tracks")?.optJSONArray("items")
+                val list  = if (items != null) parseTrackItems(items) else emptyList()
+                if (list.isNotEmpty()) {
+                    _tracks.value = list
+                    _tracksError.value = null
+                    Log.d("SpotifyCtrl", "Fetched ${list.size} tracks via /playlists")
+                    return
+                }
             }
-            val list = parseTrackItems(trackItems)
-            if (list.isNotEmpty()) {
-                _tracks.value = list
-                _tracksError.value = null
-                Log.d("SpotifyCtrl", "Fetched ${list.size} tracks")
-            } else {
-                _tracksError.value = "Ingen sanger funnet"
-            }
+
+            // Vis faktisk feilmelding fra Spotify
+            val spotifyMsg = try {
+                JSONObject(tracksBody).optJSONObject("error")?.optString("message")
+            } catch (_: Exception) { null }
+            val code = tracksResp.code
+            _tracksError.value = "HTTP $code${if (spotifyMsg != null) ": $spotifyMsg" else ""}"
+            Log.w("SpotifyCtrl", "tracks failed $code — $tracksBody")
         } catch (e: Exception) {
             _tracksError.value = "Feil: ${e.message}"
             Log.w("SpotifyCtrl", "fetchTracksViaWebApi failed: $e")
