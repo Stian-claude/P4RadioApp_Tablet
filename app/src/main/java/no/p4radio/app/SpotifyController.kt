@@ -338,6 +338,35 @@ class SpotifyController {
             ).execute()
             val tracksBody = tracksResp.body?.string() ?: ""
             if (!tracksResp.isSuccessful) {
+                if (tracksHref != null && tracksResp.code == 403) {
+                    // href Forbidden — vanlig for fulgte/offentlige playlister; prøv direkte endpoint
+                    Log.w("SpotifyCtrl", "href 403, retrying with direct endpoint")
+                    val directUrl = "https://api.spotify.com/v1/playlists/$targetPlaylistId/tracks?limit=100"
+                    val directResp = http.newCall(
+                        Request.Builder()
+                            .url(directUrl)
+                            .header("Authorization", "Bearer $token")
+                            .build()
+                    ).execute()
+                    val directBody = directResp.body?.string() ?: ""
+                    if (!directResp.isSuccessful) {
+                        _tracksError.value = "HTTP ${directResp.code}"
+                        return
+                    }
+                    val directItems = JSONObject(directBody).optJSONArray("items") ?: run {
+                        _tracksError.value = "Ingen sanger funnet"
+                        return
+                    }
+                    val list = parseTrackItems(directItems)
+                    if (list.isNotEmpty()) {
+                        _tracks.value = list
+                        _tracksError.value = null
+                        Log.d("SpotifyCtrl", "Fetched ${list.size} tracks via direct endpoint")
+                    } else {
+                        _tracksError.value = "Ingen sanger funnet"
+                    }
+                    return
+                }
                 val msg = try {
                     JSONObject(tracksBody).optJSONObject("error")?.optString("message") ?: tracksBody.take(80)
                 } catch (_: Exception) { tracksBody.take(80) }
