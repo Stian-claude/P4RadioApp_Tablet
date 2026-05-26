@@ -25,6 +25,7 @@ import java.lang.ref.WeakReference
 import java.util.Base64
 
 data class SpotifyTrack(val uri: String, val title: String, val artist: String)
+data class SpotifyPlaylist(val id: String, val uri: String, val name: String)
 
 class SpotifyController {
 
@@ -48,7 +49,6 @@ class SpotifyController {
 
     private var appRemote: SpotifyAppRemote? = null
 
-    // Keeps last known track URI across disconnect/reconnect so we can resume instead of restarting
     private var lastKnownTrackUri: String? = null
 
     private var accessToken: String? = null
@@ -81,6 +81,19 @@ class SpotifyController {
 
     private val _tracksError = MutableStateFlow<String?>(null)
     val tracksError: StateFlow<String?> = _tracksError
+
+    // Active playlist — defaults to the hardcoded "Road trip" playlist
+    private val _currentPlaylistId   = MutableStateFlow(PLAYLIST_ID)
+    private val _currentPlaylistUri  = MutableStateFlow(PLAYLIST_URI)
+    private val _currentPlaylistName = MutableStateFlow("Road trip")
+    val currentPlaylistId:   StateFlow<String> = _currentPlaylistId
+    val currentPlaylistName: StateFlow<String> = _currentPlaylistName
+
+    private val _userPlaylists    = MutableStateFlow<List<SpotifyPlaylist>>(emptyList())
+    val userPlaylists: StateFlow<List<SpotifyPlaylist>> = _userPlaylists
+
+    private val _playlistsLoading = MutableStateFlow(false)
+    val playlistsLoading: StateFlow<Boolean> = _playlistsLoading
 
     fun setContext(context: Context) {
         contextRef = WeakReference(context)
@@ -134,12 +147,11 @@ class SpotifyController {
                 _connecting.value = false
                 _needsAuth.value  = false
                 _error.value      = null
-                // If we know which track was playing, start that track; otherwise start playlist from top
                 val startUri = lastKnownTrackUri
                 if (startUri != null) {
                     remote.playerApi.play(startUri)
                 } else {
-                    remote.playerApi.play(PLAYLIST_URI)
+                    remote.playerApi.play(_currentPlaylistUri.value)
                 }
                 remote.playerApi.subscribeToPlayerState().setEventCallback { state ->
                     _isPlaying.value = !state.isPaused
@@ -240,14 +252,15 @@ class SpotifyController {
         }
     }
 
-    // Fetch playlist tracks — tries App Remote contentApi first, falls back to Web API
     fun fetchPlaylistTracks() {
         if (_tracksLoading.value) return
         _tracksLoading.value = true
         _tracksError.value = null
         val remote = appRemote
         if (remote?.isConnected == true) {
-            val item = ListItem(PLAYLIST_URI, PLAYLIST_URI, null, "Road trip", "", false, true)
+            val playlistUri  = _currentPlaylistUri.value
+            val playlistName = _currentPlaylistName.value
+            val item = ListItem(playlistUri, playlistUri, null, playlistName, "", false, true)
             remote.contentApi.getChildrenOfItem(item, 50, 0)
                 .setResultCallback { result ->
                     Log.d("SpotifyCtrl", "contentApi: ${result.items.size} raw items")
@@ -288,8 +301,8 @@ class SpotifyController {
         try {
             ensureUserToken()
             val token = accessToken ?: run { _tracksError.value = "Token mangler – logg inn på nytt"; return }
+            val targetPlaylistId = _currentPlaylistId.value
 
-            // Step 1: get the tracks href from /me/playlists so we use Spotify's own link
             var tracksHref: String? = null
             var offset = 0
             outer@ while (offset < 200) {
@@ -304,8 +317,7 @@ class SpotifyController {
                 val plItems = meJson.optJSONArray("items") ?: break
                 for (i in 0 until plItems.length()) {
                     val pl = plItems.getJSONObject(i)
-                    if (pl.optString("id") == PLAYLIST_ID) {
-                        // Prefer newer "items" field, fall back to deprecated "tracks"
+                    if (pl.optString("id") == targetPlaylistId) {
                         tracksHref = pl.optJSONObject("items")?.optString("href")?.takeIf { it.isNotEmpty() }
                             ?: pl.optJSONObject("tracks")?.optString("href")?.takeIf { it.isNotEmpty() }
                         break@outer
@@ -315,8 +327,7 @@ class SpotifyController {
                 offset += 50
             }
 
-            // Step 2: fetch tracks via the href
-            val url = (tracksHref ?: "https://api.spotify.com/v1/playlists/$PLAYLIST_ID/tracks")
+            val url = (tracksHref ?: "https://api.spotify.com/v1/playlists/$targetPlaylistId/tracks")
                 .let { if ("limit=" !in it) "$it?limit=100" else it }
             Log.d("SpotifyCtrl", "tracks url: $url")
             val tracksResp = http.newCall(
@@ -369,6 +380,67 @@ class SpotifyController {
             list.add(SpotifyTrack(uri, name, artist))
         }
         return list
+    }
+
+    fun fetchUserPlaylists() {
+        if (_playlistsLoading.value) return
+        _playlistsLoading.value = true
+        scope.launch {
+            try {
+                ensureUserToken()
+                val token = accessToken ?: run { _playlistsLoading.value = false; return@launch }
+                val playlists = mutableListOf<SpotifyPlaylist>()
+                var offset = 0
+                while (offset < 500) {
+                    val resp = http.newCall(
+                        Request.Builder()
+                            .url("https://api.spotify.com/v1/me/playlists?limit=50&offset=$offset")
+                            .header("Authorization", "Bearer $token")
+                            .build()
+                    ).execute()
+                    if (!resp.isSuccessful) break
+                    val json = JSONObject(resp.body?.string() ?: "")
+                    val items = json.optJSONArray("items") ?: break
+                    for (i in 0 until items.length()) {
+                        val pl = items.getJSONObject(i)
+                        val id   = pl.optString("id").takeIf { it.isNotEmpty() } ?: continue
+                        val name = pl.optString("name").takeIf { it.isNotEmpty() } ?: continue
+                        val uri  = pl.optString("uri").takeIf { it.isNotEmpty() } ?: "spotify:playlist:$id"
+                        playlists.add(SpotifyPlaylist(id, uri, name))
+                    }
+                    val next = json.optString("next").takeIf { it.isNotEmpty() && it != "null" } ?: break
+                    offset += 50
+                }
+                _userPlaylists.value = playlists
+            } catch (e: Exception) {
+                Log.w("SpotifyCtrl", "fetchUserPlaylists: $e")
+            } finally {
+                _playlistsLoading.value = false
+            }
+        }
+    }
+
+    fun selectPlaylist(playlist: SpotifyPlaylist) {
+        _currentPlaylistId.value   = playlist.id
+        _currentPlaylistUri.value  = playlist.uri
+        _currentPlaylistName.value = playlist.name
+        _tracks.value = emptyList()
+        lastKnownTrackUri = null
+        val remote = appRemote
+        if (remote?.isConnected == true) {
+            remote.playerApi.play(playlist.uri)
+        } else {
+            scope.launch {
+                try {
+                    ensureUserToken()
+                    val token    = accessToken ?: return@launch
+                    val deviceId = findDeviceId(token)
+                    if (deviceId != null) startPlaylistOnDevice(token, deviceId)
+                    else _error.value = ERROR_NO_DEVICE
+                } catch (e: Exception) { _error.value = "Feil: ${e.message}" }
+            }
+        }
+        scope.launch { delay(600); fetchPlaylistTracks() }
     }
 
     fun openAuthInBrowser() {
@@ -429,7 +501,6 @@ class SpotifyController {
                 if (deviceId != null) {
                     val uri = lastKnownTrackUri
                     if (uri != null) {
-                        // Resume specific track rather than restarting playlist
                         val resp = http.newCall(
                             Request.Builder()
                                 .url("https://api.spotify.com/v1/me/player/play?device_id=$deviceId")
@@ -442,7 +513,6 @@ class SpotifyController {
                         startPlaylistOnDevice(token, deviceId)
                     }
                 } else {
-                    // Ingen aktiv enhet — vis feil med knapp i UI
                     _error.value = ERROR_NO_DEVICE
                 }
             } catch (e: Exception) { Log.w("SpotifyCtrl", "ensureSpotifyActive: $e") }
@@ -452,7 +522,7 @@ class SpotifyController {
     fun openSpotifyToPlaylist() {
         val ctx = contextRef?.get() ?: return
         try {
-            ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PLAYLIST_URI)).apply {
+            ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(_currentPlaylistUri.value)).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             })
         } catch (_: Exception) {
@@ -516,7 +586,7 @@ class SpotifyController {
         val resp = http.newCall(
             Request.Builder()
                 .url("https://api.spotify.com/v1/me/player/play?device_id=$deviceId")
-                .put("""{"context_uri":"$PLAYLIST_URI"}""".toRequestBody("application/json".toMediaType()))
+                .put("""{"context_uri":"${_currentPlaylistUri.value}"}""".toRequestBody("application/json".toMediaType()))
                 .header("Authorization", "Bearer $token")
                 .build()
         ).execute()
@@ -651,13 +721,10 @@ class SpotifyController {
     fun resumePlayback() {
         val remote = appRemote
         if (remote?.isConnected == true) {
-            // Bruk resume() — kaller IKKE play() som kan åpne Spotify-appen
-            // Hvis ingenting spilte tidligere, start spillelisten
             if (lastKnownTrackUri != null) remote.playerApi.resume()
-            else remote.playerApi.play(PLAYLIST_URI)
+            else remote.playerApi.play(_currentPlaylistUri.value)
             return
         }
-        // App Remote koblet fra — reconnect (settle vil bruke lastKnownTrackUri)
         val ctx = contextRef?.get() ?: run { _needsAuth.value = true; return }
         _connecting.value = true
         connectAppRemote(ctx)
@@ -702,6 +769,11 @@ class SpotifyController {
         _tracks.value        = emptyList()
         _tracksLoading.value = false
         _tracksError.value   = null
+        _userPlaylists.value    = emptyList()
+        _playlistsLoading.value = false
+        _currentPlaylistId.value   = PLAYLIST_ID
+        _currentPlaylistUri.value  = PLAYLIST_URI
+        _currentPlaylistName.value = "Road trip"
     }
 
     fun clearError() { _error.value = null }
