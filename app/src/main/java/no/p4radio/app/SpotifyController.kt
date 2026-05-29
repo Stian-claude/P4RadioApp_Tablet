@@ -176,7 +176,7 @@ class SpotifyController {
                                     Request.Builder().url(url)
                                         .put(body.toRequestBody("application/json".toMediaType()))
                                         .header("Authorization", "Bearer $token").build()
-                                ).execute().close()
+                                ).execute().use { r -> if (!r.isSuccessful) remote.playerApi.resume() }
                             }
                         } else {
                             remote.playerApi.resume()
