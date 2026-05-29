@@ -147,13 +147,7 @@ class SpotifyController {
                 _connecting.value = false
                 _needsAuth.value  = false
                 _error.value      = null
-                remote.playerApi.getPlayerState().setResultCallback { state ->
-                    when {
-                        state.track != null && !state.isPaused -> { /* already playing — preserve context */ }
-                        state.track != null ->                    remote.playerApi.resume()
-                        else ->                                   remote.playerApi.play(_currentPlaylistUri.value)
-                    }
-                }
+                remote.playerApi.resume()
                 remote.playerApi.subscribeToPlayerState().setEventCallback { state ->
                     _isPlaying.value = !state.isPaused
                     state.track?.let { t ->
@@ -678,22 +672,10 @@ class SpotifyController {
     }
 
     fun skipNext() {
-        val remote = appRemote
-        if (remote?.isConnected == true) {
-            remote.playerApi.skipNext()
-                .setErrorCallback { scope.launch { skipViaWebApi(next = true) } }
-            return
-        }
         scope.launch { skipViaWebApi(next = true) }
     }
 
     fun skipPrevious() {
-        val remote = appRemote
-        if (remote?.isConnected == true) {
-            remote.playerApi.skipPrevious()
-                .setErrorCallback { scope.launch { skipViaWebApi(next = false) } }
-            return
-        }
         scope.launch { skipViaWebApi(next = false) }
     }
 
