@@ -643,44 +643,81 @@ class SpotifyController {
         }
     }
 
-    // Skip via Web API direkte — App Remote sin skipNext/skipPrevious
-    // mister spilleliste-konteksten på nettbrett og stopper avspillingen.
-    fun skipNext()     { scope.launch { skipViaWebApi(next = true) } }
-    fun skipPrevious() { scope.launch { skipViaWebApi(next = false) } }
+    fun skipNext() {
+        val remote = appRemote
+        if (remote?.isConnected == true) {
+            remote.playerApi.skipNext()
+                .setErrorCallback { scope.launch { skipViaWebApi(next = true) } }
+            return
+        }
+        scope.launch { skipViaWebApi(next = true) }
+    }
 
+    fun skipPrevious() {
+        val remote = appRemote
+        if (remote?.isConnected == true) {
+            remote.playerApi.skipPrevious()
+                .setErrorCallback { scope.launch { skipViaWebApi(next = false) } }
+            return
+        }
+        scope.launch { skipViaWebApi(next = false) }
+    }
+
+    // Web API skip med retry: etter modusbytte er enheten ikke alltid "aktiv" ennå,
+    // da gir POST /next 404 — vi prøver på nytt med eksplisitt device_id.
     private suspend fun skipViaWebApi(next: Boolean) {
         val endpoint = if (next) "next" else "previous"
         try {
             ensureUserToken()
             val token = accessToken ?: return
-            http.newCall(
+            val url = "https://api.spotify.com/v1/me/player/$endpoint"
+            val resp = http.newCall(
                 Request.Builder()
-                    .url("https://api.spotify.com/v1/me/player/$endpoint")
+                    .url(url)
                     .post("".toRequestBody("application/json".toMediaType()))
                     .header("Authorization", "Bearer $token")
                     .build()
             ).execute()
+            if (resp.code == 404) {
+                // Ingen aktiv enhet registrert ennå — prøv med eksplisitt device_id
+                val deviceId = findDeviceId(token) ?: return
+                http.newCall(
+                    Request.Builder()
+                        .url("$url?device_id=$deviceId")
+                        .post("".toRequestBody("application/json".toMediaType()))
+                        .header("Authorization", "Bearer $token")
+                        .build()
+                ).execute()
+            }
         } catch (e: Exception) { Log.w("SpotifyCtrl", "skip $endpoint failed: $e") }
     }
 
     fun playTrack(uri: String) {
-        val remote = appRemote
-        if (remote?.isConnected == true) {
-            remote.playerApi.play(uri)
-            return
-        }
+        // Bruk Web API med spilleliste-kontekst + offset slik at skip neste/forrige
+        // fungerer etter valg av sang. App Remote play(uri) setter enkelt-spor-kontekst
+        // som gjør at skip stopper avspillingen.
         scope.launch {
             try {
                 ensureUserToken()
                 val token    = accessToken ?: return@launch
                 val deviceId = findDeviceId(token)
-                val url = "https://api.spotify.com/v1/me/player/play" +
-                    if (deviceId != null) "?device_id=$deviceId" else ""
-                val resp = http.newCall(Request.Builder().url(url)
-                    .put("""{"uris":["$uri"]}""".toRequestBody("application/json".toMediaType()))
-                    .header("Authorization", "Bearer $token")
-                    .build()).execute()
-                if (!resp.isSuccessful) _error.value = friendlyPlaybackError(resp.code, resp.body?.string())
+                val baseUrl  = "https://api.spotify.com/v1/me/player/play"
+                val url      = if (deviceId != null) "$baseUrl?device_id=$deviceId" else baseUrl
+                val body     = """{"context_uri":"${_currentPlaylistUri.value}","offset":{"uri":"$uri"}}"""
+                    .toRequestBody("application/json".toMediaType())
+                val resp = http.newCall(
+                    Request.Builder().url(url).put(body)
+                        .header("Authorization", "Bearer $token").build()
+                ).execute()
+                if (!resp.isSuccessful) {
+                    // Fallback: spill enkeltspor hvis spilleliste-kontekst feiler
+                    val fallbackBody = """{"uris":["$uri"]}"""
+                        .toRequestBody("application/json".toMediaType())
+                    http.newCall(
+                        Request.Builder().url(url).put(fallbackBody)
+                            .header("Authorization", "Bearer $token").build()
+                    ).execute()
+                }
             } catch (e: Exception) { _error.value = "Feil: ${e.message}" }
         }
     }

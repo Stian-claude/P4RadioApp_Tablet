@@ -305,8 +305,9 @@ private fun RadioControls(
 // ── Personlig hilsen ──────────────────────────────────────────────────────────
 @Composable
 private fun PersonalMessage(screenWidthDp: Int) {
-    val nameSp  = when { screenWidthDp >= 600 -> 20f; screenWidthDp >= 400 -> 16f; else -> 13f }
-    val heartDp = when { screenWidthDp >= 600 -> 28.dp; screenWidthDp >= 400 -> 22.dp; else -> 18.dp }
+    // 50% større enn original
+    val nameSp  = when { screenWidthDp >= 600 -> 30f; screenWidthDp >= 400 -> 24f; else -> 19f }
+    val heartDp = when { screenWidthDp >= 600 -> 42.dp; screenWidthDp >= 400 -> 33.dp; else -> 27.dp }
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
@@ -392,8 +393,8 @@ fun SpotifyContent(
     // Content padding
     val startPad  = if (isCompact) 12.dp else 60.dp
     val endPad    = if (isCompact) 12.dp else 118.dp
-    // Reserve plass til flyout-tab øverst i compact-modus (dobbel knapp = 72dp + 4dp gap)
-    val topPad    = if (isCompact) 76.dp else 12.dp
+    // Reserve plass til flyout-tab øverst i compact-modus (54dp knapp + 4dp gap)
+    val topPad    = if (isCompact) 58.dp else 12.dp
     val bottomPad = if (isCompact) 58.dp else 12.dp
 
     // Bruk fillMaxSize + ingen ekstra Box-lag som kan fange touch-events
@@ -516,24 +517,24 @@ fun SpotifyContent(
                         modifier = Modifier.size(36.dp))
                 }
             } else {
-                // Compact: top-centre tab — dobbel størrelse
+                // Compact: top-centre tab — 75% av dobbel størrelse
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
-                        .height(72.dp).width(280.dp)
-                        .clip(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp))
+                        .height(54.dp).width(210.dp)
+                        .clip(RoundedCornerShape(bottomStart = 21.dp, bottomEnd = 21.dp))
                         .background(DarkGreen)
                         .clickable { flyoutOpen = true },
                     contentAlignment = Alignment.Center
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Icon(Icons.Default.QueueMusic, "Spilleliste", tint = RadioGreen,
-                            modifier = Modifier.size(36.dp))
-                        Text("Spilleliste", fontSize = 24.sp, color = RadioGreen,
+                            modifier = Modifier.size(27.dp))
+                        Text("Spilleliste", fontSize = 18.sp, color = RadioGreen,
                             fontWeight = FontWeight.SemiBold)
                         Icon(Icons.Default.ExpandMore, null,
-                            tint = RadioGreen.copy(alpha = 0.7f), modifier = Modifier.size(28.dp))
+                            tint = RadioGreen.copy(alpha = 0.7f), modifier = Modifier.size(21.dp))
                     }
                 }
             }
