@@ -11,8 +11,8 @@ android {
         applicationId "no.radioapp.player"
         minSdk 26
         targetSdk 34
-        versionCode 29
-        versionName "4.6"
+        versionCode 1
+        versionName "1.0-tablet"
     }
 
     buildTypes {

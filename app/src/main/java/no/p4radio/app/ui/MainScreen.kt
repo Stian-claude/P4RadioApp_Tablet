@@ -5,7 +5,9 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -45,6 +47,9 @@ import kotlinx.coroutines.delay
 import no.p4radio.app.AppMode
 import no.p4radio.app.R
 import no.p4radio.app.RadioViewModel
+import no.p4radio.app.SpotifyController
+import no.p4radio.app.SpotifyPlaylist
+import no.p4radio.app.SpotifyTrack
 import java.util.*
 
 val RadioGreen = Color(0xFF5ACB7E)
@@ -56,6 +61,17 @@ private val DAY_NAMES   = arrayOf("Sondag","Mandag","Tirsdag","Onsdag","Torsdag"
 private val MONTH_NAMES = arrayOf("Januar","Februar","Mars","April","Mai","Juni",
                                    "Juli","August","September","Oktober","November","Desember")
 
+// ── Responsive size helpers (landscape) ───────────────────────────────────────
+private fun clockSp(w: Int): Float      = when { w >= 600 -> 72f;  w >= 480 -> 58f;  w >= 360 -> 46f;  else -> 36f }
+private fun dateSp(w: Int): Float       = when { w >= 600 -> 14f;  w >= 480 -> 13f;  w >= 360 -> 12f;  else -> 11f }
+private fun stationSp(w: Int): Float    = when { w >= 600 -> 22f;  w >= 480 -> 18f;  w >= 360 -> 15f;  else -> 13f }
+private fun trackTitleSp(w: Int): Float = when { w >= 600 -> 22f;  w >= 480 -> 18f;  w >= 360 -> 15f;  else -> 13f }
+private fun playDp(w: Int): Int         = when { w >= 600 -> 100;  w >= 480 -> 84;   w >= 360 -> 70;   else -> 58 }
+private fun skipDp(w: Int): Int         = when { w >= 600 -> 74;   w >= 480 -> 62;   w >= 360 -> 52;   else -> 42 }
+private fun iconPlayDp(w: Int): Int     = when { w >= 600 -> 56;   w >= 480 -> 46;   w >= 360 -> 38;   else -> 32 }
+private fun iconSkipDp(w: Int): Int     = when { w >= 600 -> 42;   w >= 480 -> 34;   w >= 360 -> 28;   else -> 24 }
+
+// ── MainScreen ────────────────────────────────────────────────────────────────
 @Composable
 fun MainScreen(viewModel: RadioViewModel) {
     val appMode        by viewModel.appMode.collectAsState()
@@ -90,7 +106,12 @@ fun MainScreen(viewModel: RadioViewModel) {
         }
     }
 
-    val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val config        = LocalConfiguration.current
+    val isLandscape   = config.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val screenWidthDp = config.screenWidthDp
+
+    // Compact = landscape but too narrow for side buttons (split-screen / small tablet pane)
+    val isCompact = isLandscape && screenWidthDp < 500
 
     var prevLandscape by rememberSaveable { mutableStateOf(isLandscape) }
     LaunchedEffect(isLandscape) {
@@ -102,33 +123,64 @@ fun MainScreen(viewModel: RadioViewModel) {
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0D0D0D))) {
         if (isLandscape) {
+
+            // ── Content ───────────────────────────────────────────────────────
             when (appMode) {
-                AppMode.RADIO   -> RadioContent(viewModel, clockTime, dateText,
+                AppMode.RADIO -> RadioContent(
+                    viewModel, clockTime, dateText,
                     currentStation?.name ?: "", isPlaying, isBuffering, isFetching, errorMessage,
-                    isLandscape = true)
-                AppMode.SPOTIFY -> SpotifyContent(viewModel, clockTime, dateText, isLandscape = true)
+                    screenWidthDp = screenWidthDp, isLandscape = true, isCompact = isCompact
+                )
+                AppMode.SPOTIFY -> SpotifyContent(
+                    viewModel, clockTime, dateText,
+                    screenWidthDp = screenWidthDp, isCompact = isCompact
+                )
             }
-            Column(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .width(118.dp)
-                    .padding(end = 14.dp)
-                    .align(Alignment.CenterEnd),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                ModeButton("Radio",   appMode == AppMode.RADIO)   { viewModel.setMode(AppMode.RADIO) }
-                Spacer(Modifier.height(12.dp))
-                ModeButton("Spotify", appMode == AppMode.SPOTIFY) { viewModel.setMode(AppMode.SPOTIFY) }
+
+            // ── Mode buttons ──────────────────────────────────────────────────
+            if (!isCompact) {
+                // Wide landscape: right-side column
+                Column(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .width(118.dp)
+                        .padding(end = 14.dp)
+                        .align(Alignment.CenterEnd),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    ModeButton("Radio",   appMode == AppMode.RADIO)   { viewModel.setMode(AppMode.RADIO) }
+                    Spacer(Modifier.height(12.dp))
+                    ModeButton("Spotify", appMode == AppMode.SPOTIFY) { viewModel.setMode(AppMode.SPOTIFY) }
+                }
+            } else {
+                // Compact landscape: bottom bar
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                        .background(Color(0xFF0A0A0A))
+                        .align(Alignment.BottomCenter)
+                        .padding(horizontal = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CompactModeButton("Radio",   appMode == AppMode.RADIO)   { viewModel.setMode(AppMode.RADIO) }
+                    CompactModeButton("Spotify", appMode == AppMode.SPOTIFY) { viewModel.setMode(AppMode.SPOTIFY) }
+                }
             }
         } else {
-            RadioContent(viewModel, clockTime, dateText,
+            // Portrait
+            RadioContent(
+                viewModel, clockTime, dateText,
                 currentStation?.name ?: "", isPlaying, isBuffering, isFetching, errorMessage,
-                isLandscape = false)
+                screenWidthDp = screenWidthDp, isLandscape = false, isCompact = false
+            )
         }
     }
 }
 
+// ── Mode buttons ──────────────────────────────────────────────────────────────
 @Composable
 fun ModeButton(label: String, isActive: Boolean, onClick: () -> Unit) {
     Box(
@@ -139,69 +191,84 @@ fun ModeButton(label: String, isActive: Boolean, onClick: () -> Unit) {
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text       = label,
-            fontSize   = 19.sp,
-            fontWeight = FontWeight.SemiBold,
-            color      = if (isActive) Color(0xFF0D0D0D) else RadioGreen.copy(alpha = 0.7f)
-        )
+        Text(label, fontSize = 19.sp, fontWeight = FontWeight.SemiBold,
+            color = if (isActive) Color(0xFF0D0D0D) else RadioGreen.copy(alpha = 0.7f))
     }
 }
 
+@Composable
+fun CompactModeButton(label: String, isActive: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .width(110.dp).height(36.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (isActive) RadioGreen else DarkGreen)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(label, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+            color = if (isActive) Color(0xFF0D0D0D) else RadioGreen.copy(alpha = 0.7f))
+    }
+}
+
+// ── Radio content ─────────────────────────────────────────────────────────────
 @Composable
 fun RadioContent(
     viewModel: RadioViewModel,
     clockTime: String, dateText: String, currentStation: String,
     isPlaying: Boolean, isBuffering: Boolean, isFetching: Boolean,
-    errorMessage: String?, isLandscape: Boolean
+    errorMessage: String?,
+    screenWidthDp: Int,
+    isLandscape: Boolean,
+    isCompact: Boolean
 ) {
-    val clockSize   : Dp
-    val dateSize    : Float
-    val stationSize : Float
-    val playSize    : Dp
-    val skipSize    : Dp
-    val iconPlay    : Dp
-    val iconSkip    : Dp
+    // Portrait keeps original fixed sizes; landscape scales with width
+    val clkSp   = if (isLandscape) clockSp(screenWidthDp)   else 96f
+    val datFSp  = if (isLandscape) dateSp(screenWidthDp)    else 15f
+    val staSp   = if (isLandscape) stationSp(screenWidthDp) else 28f
+    val playSz  = if (isLandscape) playDp(screenWidthDp).dp else 104.dp
+    val skipSz  = if (isLandscape) skipDp(screenWidthDp).dp else 76.dp
+    val icoPlay = if (isLandscape) iconPlayDp(screenWidthDp).dp else 58.dp
+    val icoSkip = if (isLandscape) iconSkipDp(screenWidthDp).dp else 42.dp
 
-    if (isLandscape) {
-        clockSize   = 72.dp; dateSize = 14f; stationSize = 22f
-        playSize = 100.dp; skipSize = 74.dp; iconPlay = 56.dp; iconSkip = 42.dp
-    } else {
-        clockSize   = 96.dp; dateSize = 15f; stationSize = 28f
-        playSize = 104.dp; skipSize = 76.dp; iconPlay = 58.dp; iconSkip = 42.dp
-    }
+    val hPad      = if (!isLandscape) 24.dp else if (isCompact) 16.dp else 0.dp
+    val startPad  = if (!isLandscape) hPad  else if (isCompact) 16.dp else 60.dp
+    val endPad    = if (!isLandscape) hPad  else if (isCompact) 16.dp else 118.dp
+    val bottomPad = if (isCompact) 58.dp else 12.dp
 
     if (isLandscape) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(start = 60.dp, end = 118.dp, top = 12.dp, bottom = 12.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = startPad, end = endPad, top = 12.dp, bottom = bottomPad),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(clockTime, fontSize = clockSize.value.sp, fontFamily = RadioClockFont,
+            Text(clockTime, fontSize = clkSp.sp, fontFamily = RadioClockFont,
                 color = RadioGreen, letterSpacing = 4.sp)
-            Text(dateText, fontSize = dateSize.sp, color = RadioGreen.copy(alpha = 0.65f))
-
+            Text(dateText, fontSize = datFSp.sp, color = RadioGreen.copy(alpha = 0.65f))
             Spacer(Modifier.weight(1f))
-
             RadioControls(viewModel, currentStation, isPlaying, isBuffering, isFetching,
-                stationSize, playSize, skipSize, iconPlay, iconSkip)
-
-            errorMessage?.let { msg -> ErrorBanner(msg) { viewModel.clearError() } }
-            Spacer(Modifier.height(20.dp))
+                staSp, playSz, skipSz, icoPlay, icoSkip)
+            errorMessage?.let { msg ->
+                Spacer(Modifier.height(8.dp))
+                ErrorBanner(msg) { viewModel.clearError() }
+            }
+            Spacer(Modifier.height(12.dp))
         }
     } else {
         Column(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Text(clockTime, fontSize = clockSize.value.sp, fontFamily = RadioClockFont,
+            Text(clockTime, fontSize = clkSp.sp, fontFamily = RadioClockFont,
                 color = RadioGreen, letterSpacing = 4.sp)
-            Text(dateText, fontSize = dateSize.sp, color = RadioGreen.copy(alpha = 0.65f),
+            Text(dateText, fontSize = datFSp.sp, color = RadioGreen.copy(alpha = 0.65f),
                 modifier = Modifier.padding(bottom = 32.dp))
-
             RadioControls(viewModel, currentStation, isPlaying, isBuffering, isFetching,
-                stationSize, playSize, skipSize, iconPlay, iconSkip)
-
+                staSp, playSz, skipSz, icoPlay, icoSkip)
             errorMessage?.let { msg ->
                 Spacer(Modifier.height(16.dp))
                 ErrorBanner(msg) { viewModel.clearError() }
@@ -265,60 +332,64 @@ private fun ErrorBanner(msg: String, onDismiss: () -> Unit) {
     }
 }
 
+// ── Spotify content ───────────────────────────────────────────────────────────
 @Composable
 fun SpotifyContent(
     viewModel: RadioViewModel,
-    clockTime: String, dateText: String, isLandscape: Boolean
+    clockTime: String, dateText: String,
+    screenWidthDp: Int,
+    isCompact: Boolean
 ) {
-    val spotify        = viewModel.spotifyController
-    val needsAuth    by spotify.needsAuth.collectAsState()
-    val connecting   by spotify.connecting.collectAsState()
-    val connected    by spotify.connected.collectAsState()
-    val currentTrack by spotify.currentTrack.collectAsState()
-    val isPlaying    by spotify.isPlaying.collectAsState()
-    val error        by spotify.error.collectAsState()
-    val tracks       by spotify.tracks.collectAsState()
-    val tracksLoading by spotify.tracksLoading.collectAsState()
-    val tracksError   by spotify.tracksError.collectAsState()
+    val spotify             = viewModel.spotifyController
+    val needsAuth          by spotify.needsAuth.collectAsState()
+    val connecting         by spotify.connecting.collectAsState()
+    val connected          by spotify.connected.collectAsState()
+    val currentTrack       by spotify.currentTrack.collectAsState()
+    val isPlaying          by spotify.isPlaying.collectAsState()
+    val error              by spotify.error.collectAsState()
+    val tracks             by spotify.tracks.collectAsState()
+    val tracksLoading      by spotify.tracksLoading.collectAsState()
+    val tracksError        by spotify.tracksError.collectAsState()
     val currentPlaylistName by spotify.currentPlaylistName.collectAsState()
     val currentPlaylistId   by spotify.currentPlaylistId.collectAsState()
     val userPlaylists       by spotify.userPlaylists.collectAsState()
     val playlistsLoading    by spotify.playlistsLoading.collectAsState()
 
-    val playSize = if (isLandscape) 100.dp else 104.dp
-    val skipSize = if (isLandscape) 74.dp  else 76.dp
-    val iconPlay = if (isLandscape) 56.dp  else 58.dp
-    val iconSkip = 42.dp
+    val playSz  = playDp(screenWidthDp).dp
+    val skipSz  = skipDp(screenWidthDp).dp
+    val icoPlay = iconPlayDp(screenWidthDp).dp
+    val icoSkip = iconSkipDp(screenWidthDp).dp
+    val clkSp   = clockSp(screenWidthDp)
+    val datFSp  = dateSp(screenWidthDp)
+    val trkSp   = trackTitleSp(screenWidthDp)
 
-    val showFlyoutButton = isLandscape && connected && !connecting && !needsAuth
+    val showFlyoutButton = connected && !connecting && !needsAuth
     var flyoutOpen by remember { mutableStateOf(false) }
     var showPlaylistPicker by remember { mutableStateOf(false) }
 
     LaunchedEffect(flyoutOpen) {
-        if (flyoutOpen && tracks.isEmpty()) {
-            spotify.fetchPlaylistTracks()
-        }
+        if (flyoutOpen && tracks.isEmpty()) spotify.fetchPlaylistTracks()
         if (!flyoutOpen) showPlaylistPicker = false
     }
 
+    // Content padding
+    val startPad  = if (isCompact) 12.dp else 60.dp
+    val endPad    = if (isCompact) 12.dp else 118.dp
+    val topPad    = if (isCompact && showFlyoutButton) 40.dp else 12.dp
+    val bottomPad = if (isCompact) 58.dp else 12.dp
+
     Box(modifier = Modifier.fillMaxSize()) {
+
+        // ── Main column ───────────────────────────────────────────────────────
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(
-                    start  = if (isLandscape) 60.dp else 20.dp,
-                    end    = if (isLandscape) 118.dp else 20.dp,
-                    top    = 12.dp,
-                    bottom = 12.dp
-                ),
+                .padding(start = startPad, end = endPad, top = topPad, bottom = bottomPad),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(clockTime,
-                fontSize = if (isLandscape) 72.sp else 96.sp,
-                fontFamily = RadioClockFont, color = RadioGreen, letterSpacing = 4.sp)
-            Text(dateText,
-                fontSize = if (isLandscape) 14.sp else 15.sp,
-                color = RadioGreen.copy(alpha = 0.55f))
+            Text(clockTime, fontSize = clkSp.sp, fontFamily = RadioClockFont,
+                color = RadioGreen, letterSpacing = 4.sp)
+            Text(dateText, fontSize = datFSp.sp, color = RadioGreen.copy(alpha = 0.55f))
 
             when {
                 needsAuth -> {
@@ -329,11 +400,11 @@ fun SpotifyContent(
                     }
                     Button(onClick = { spotify.openAuthInBrowser() },
                         colors = ButtonDefaults.buttonColors(containerColor = RadioGreen)) {
-                        Text("Logg inn med Spotify", color = Color(0xFF0D0D0D), fontWeight = FontWeight.SemiBold)
+                        Text("Logg inn med Spotify", color = Color(0xFF0D0D0D),
+                            fontWeight = FontWeight.SemiBold)
                     }
                     Spacer(Modifier.weight(1f))
                 }
-
                 connecting -> {
                     Spacer(Modifier.weight(1f))
                     CircularProgressIndicator(color = RadioGreen, modifier = Modifier.size(44.dp))
@@ -341,7 +412,6 @@ fun SpotifyContent(
                         fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
                     Spacer(Modifier.weight(1f))
                 }
-
                 !connected -> {
                     Spacer(Modifier.weight(1f))
                     error?.let { msg ->
@@ -354,13 +424,10 @@ fun SpotifyContent(
                     } ?: Text("Ikke koblet til Spotify", color = RadioGreen.copy(0.6f), fontSize = 13.sp)
                     Spacer(Modifier.weight(1f))
                 }
-
                 else -> {
                     Spacer(Modifier.weight(1f))
-
                     currentTrack?.let { track ->
-                        Text(track.title,
-                            fontSize = if (isLandscape) 22.sp else 26.sp,
+                        Text(track.title, fontSize = trkSp.sp,
                             fontFamily = RadioClockFont, color = RadioGreen,
                             maxLines = 1, textAlign = TextAlign.Center,
                             modifier = Modifier.padding(horizontal = 16.dp))
@@ -368,32 +435,35 @@ fun SpotifyContent(
                             color = RadioGreen.copy(alpha = 0.65f),
                             modifier = Modifier.padding(bottom = 14.dp))
                     }
-
                     Row(verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(28.dp)) {
                         IconButton(onClick = { spotify.skipPrevious() },
-                            modifier = Modifier.size(skipSize).background(Color.White.copy(alpha = 0.08f), CircleShape)) {
+                            modifier = Modifier.size(skipSz)
+                                .background(Color.White.copy(alpha = 0.08f), CircleShape)) {
                             Icon(Icons.Default.SkipPrevious, "Forrige", tint = Color.White,
-                                modifier = Modifier.size(iconSkip))
+                                modifier = Modifier.size(icoSkip))
                         }
                         IconButton(onClick = { spotify.clearError(); spotify.togglePlayPause() },
-                            modifier = Modifier.size(playSize).background(RadioGreen.copy(alpha = 0.16f), CircleShape)) {
+                            modifier = Modifier.size(playSz)
+                                .background(RadioGreen.copy(alpha = 0.16f), CircleShape)) {
                             Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                 if (isPlaying) "Pause" else "Spill",
-                                tint = RadioGreen, modifier = Modifier.size(iconPlay))
+                                tint = RadioGreen, modifier = Modifier.size(icoPlay))
                         }
                         IconButton(onClick = { spotify.skipNext() },
-                            modifier = Modifier.size(skipSize).background(Color.White.copy(alpha = 0.08f), CircleShape)) {
+                            modifier = Modifier.size(skipSz)
+                                .background(Color.White.copy(alpha = 0.08f), CircleShape)) {
                             Icon(Icons.Default.SkipNext, "Neste", tint = Color.White,
-                                modifier = Modifier.size(iconSkip))
+                                modifier = Modifier.size(icoSkip))
                         }
                     }
-
                     error?.let { msg ->
                         if (msg == "NO_DEVICE") {
                             Spacer(Modifier.height(12.dp))
-                            Button(onClick = { spotify.clearError(); spotify.openSpotifyToPlaylist() },
-                                colors = ButtonDefaults.buttonColors(containerColor = RadioGreen)) {
+                            Button(
+                                onClick = { spotify.clearError(); spotify.openSpotifyToPlaylist() },
+                                colors = ButtonDefaults.buttonColors(containerColor = RadioGreen)
+                            ) {
                                 Text("Start spillelisten i Spotify", color = Color(0xFF0D0D0D),
                                     fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                             }
@@ -403,34 +473,52 @@ fun SpotifyContent(
                                 modifier = Modifier.padding(horizontal = 16.dp))
                         }
                     }
-
-                    Spacer(Modifier.height(20.dp))
+                    Spacer(Modifier.height(16.dp))
                 }
             }
         }
 
-        // Flyout tab button — left edge, only when connected landscape
+        // ── Flyout trigger button ─────────────────────────────────────────────
         if (showFlyoutButton) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .width(60.dp)
-                    .height(160.dp)
-                    .clip(RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp))
-                    .background(DarkGreen)
-                    .clickable { flyoutOpen = true },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Default.QueueMusic,
-                    contentDescription = "Spilleliste",
-                    tint = RadioGreen,
-                    modifier = Modifier.size(36.dp)
-                )
+            if (!isCompact) {
+                // Wide: left-edge tab (original behaviour)
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .width(60.dp).height(160.dp)
+                        .clip(RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp))
+                        .background(DarkGreen)
+                        .clickable { flyoutOpen = true },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.QueueMusic, "Spilleliste", tint = RadioGreen,
+                        modifier = Modifier.size(36.dp))
+                }
+            } else {
+                // Compact: top-centre tab that hangs down from the top edge
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .height(36.dp).width(140.dp)
+                        .clip(RoundedCornerShape(bottomStart = 14.dp, bottomEnd = 14.dp))
+                        .background(DarkGreen)
+                        .clickable { flyoutOpen = true },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Default.QueueMusic, "Spilleliste", tint = RadioGreen,
+                            modifier = Modifier.size(18.dp))
+                        Text("Spilleliste", fontSize = 12.sp, color = RadioGreen,
+                            fontWeight = FontWeight.SemiBold)
+                        Icon(Icons.Default.ExpandMore, null,
+                            tint = RadioGreen.copy(alpha = 0.7f), modifier = Modifier.size(14.dp))
+                    }
+                }
             }
         }
 
-        // Dim overlay
+        // ── Dim overlay ───────────────────────────────────────────────────────
         AnimatedVisibility(
             visible = flyoutOpen,
             enter = fadeIn(tween(200)),
@@ -448,220 +536,194 @@ fun SpotifyContent(
             )
         }
 
-        // Flyout panel
-        AnimatedVisibility(
-            visible = flyoutOpen,
-            enter = slideInHorizontally(tween(280)) { -it },
-            exit  = slideOutHorizontally(tween(280)) { -it },
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .fillMaxHeight()
-                .fillMaxWidth(0.5f)
-        ) {
-            Surface(
-                color = Color(0xFF111827),
-                shadowElevation = 24.dp,
-                modifier = Modifier.fillMaxSize()
+        // ── Flyout panel ──────────────────────────────────────────────────────
+        if (!isCompact) {
+            // Wide: slides in from the left
+            AnimatedVisibility(
+                visible = flyoutOpen,
+                enter = slideInHorizontally(tween(280)) { -it },
+                exit  = slideOutHorizontally(tween(280)) { -it },
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .fillMaxHeight()
+                    .fillMaxWidth(0.5f)
             ) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    // Header with clickable playlist name
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .clickable {
-                                    showPlaylistPicker = !showPlaylistPicker
-                                    if (showPlaylistPicker && userPlaylists.isEmpty()) {
-                                        spotify.fetchUserPlaylists()
-                                    }
-                                }
-                                .padding(horizontal = 6.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Text(
-                                currentPlaylistName,
-                                fontSize = 16.sp,
-                                fontFamily = RadioClockFont,
-                                color = RadioGreen,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Icon(
-                                if (showPlaylistPicker) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                contentDescription = "Velg spilleliste",
-                                tint = RadioGreen.copy(alpha = 0.7f),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                        IconButton(
-                            onClick = { flyoutOpen = false },
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Close,
-                                contentDescription = "Lukk",
-                                tint = RadioGreen.copy(alpha = 0.7f),
-                                modifier = Modifier.size(20.dp)
-                            )
+                Surface(color = Color(0xFF111827), shadowElevation = 24.dp,
+                    modifier = Modifier.fillMaxSize()) {
+                    FlyoutContent(
+                        spotify, tracks, tracksLoading, tracksError, currentTrack,
+                        currentPlaylistName, currentPlaylistId, userPlaylists, playlistsLoading,
+                        showPlaylistPicker,
+                        onTogglePlaylistPicker = { showPlaylistPicker = it },
+                        onClose = { flyoutOpen = false }
+                    )
+                }
+            }
+        } else {
+            // Compact: slides down from the top
+            AnimatedVisibility(
+                visible = flyoutOpen,
+                enter = slideInVertically(tween(280)) { -it },
+                exit  = slideOutVertically(tween(280)) { -it },
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.82f)
+            ) {
+                Surface(color = Color(0xFF111827), shadowElevation = 24.dp,
+                    modifier = Modifier.fillMaxSize()) {
+                    FlyoutContent(
+                        spotify, tracks, tracksLoading, tracksError, currentTrack,
+                        currentPlaylistName, currentPlaylistId, userPlaylists, playlistsLoading,
+                        showPlaylistPicker,
+                        onTogglePlaylistPicker = { showPlaylistPicker = it },
+                        onClose = { flyoutOpen = false }
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ── Flyout content (shared by wide and compact) ───────────────────────────────
+@Composable
+private fun FlyoutContent(
+    spotify: SpotifyController,
+    tracks: List<SpotifyTrack>,
+    tracksLoading: Boolean,
+    tracksError: String?,
+    currentTrack: SpotifyTrack?,
+    currentPlaylistName: String,
+    currentPlaylistId: String,
+    userPlaylists: List<SpotifyPlaylist>,
+    playlistsLoading: Boolean,
+    showPlaylistPicker: Boolean,
+    onTogglePlaylistPicker: (Boolean) -> Unit,
+    onClose: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+
+        // Header
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable {
+                        onTogglePlaylistPicker(!showPlaylistPicker)
+                        if (!showPlaylistPicker && userPlaylists.isEmpty()) {
+                            spotify.fetchUserPlaylists()
                         }
                     }
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(currentPlaylistName, fontSize = 16.sp, fontFamily = RadioClockFont,
+                    color = RadioGreen, fontWeight = FontWeight.SemiBold)
+                Icon(
+                    if (showPlaylistPicker) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = "Velg spilleliste",
+                    tint = RadioGreen.copy(alpha = 0.7f), modifier = Modifier.size(18.dp)
+                )
+            }
+            IconButton(onClick = onClose, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Default.Close, "Lukk", tint = RadioGreen.copy(alpha = 0.7f),
+                    modifier = Modifier.size(20.dp))
+            }
+        }
 
-                    HorizontalDivider(color = RadioGreen.copy(alpha = 0.15f))
+        HorizontalDivider(color = RadioGreen.copy(alpha = 0.15f))
 
-                    if (showPlaylistPicker) {
-                        // Playlist picker
-                        if (playlistsLoading) {
-                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(
-                                    color = RadioGreen,
-                                    modifier = Modifier.size(32.dp),
-                                    strokeWidth = 2.dp
-                                )
-                            }
-                        } else if (userPlaylists.isEmpty()) {
-                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text(
-                                    "Ingen spillelister funnet",
-                                    color = Color.White.copy(alpha = 0.5f),
-                                    fontSize = 13.sp
-                                )
-                            }
-                        } else {
-                            LazyColumn(
-                                modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(vertical = 8.dp)
-                            ) {
-                                items(userPlaylists) { playlist ->
-                                    val isActive = playlist.id == currentPlaylistId
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable {
-                                                spotify.selectPlaylist(playlist)
-                                                showPlaylistPicker = false
-                                            }
-                                            .padding(horizontal = 16.dp, vertical = 10.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Box(
-                                            modifier = Modifier.width(22.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            if (isActive) {
-                                                Icon(
-                                                    Icons.Default.PlayArrow,
-                                                    contentDescription = null,
-                                                    tint = RadioGreen,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            }
-                                        }
-                                        Text(
-                                            playlist.name,
-                                            fontSize = 13.sp,
-                                            color = if (isActive) RadioGreen else Color.White.copy(alpha = 0.9f),
-                                            fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
+        if (showPlaylistPicker) {
+            when {
+                playlistsLoading -> Box(Modifier.fillMaxSize(), Alignment.Center) {
+                    CircularProgressIndicator(color = RadioGreen,
+                        modifier = Modifier.size(32.dp), strokeWidth = 2.dp)
+                }
+                userPlaylists.isEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) {
+                    Text("Ingen spillelister funnet",
+                        color = Color.White.copy(alpha = 0.5f), fontSize = 13.sp)
+                }
+                else -> LazyColumn(modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(vertical = 8.dp)) {
+                    items(userPlaylists) { playlist ->
+                        val isActive = playlist.id == currentPlaylistId
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    spotify.selectPlaylist(playlist)
+                                    onTogglePlaylistPicker(false)
                                 }
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(Modifier.width(22.dp), Alignment.Center) {
+                                if (isActive) Icon(Icons.Default.PlayArrow, null,
+                                    tint = RadioGreen, modifier = Modifier.size(16.dp))
+                            }
+                            Text(playlist.name, fontSize = 13.sp,
+                                color = if (isActive) RadioGreen else Color.White.copy(alpha = 0.9f),
+                                fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+            }
+        } else {
+            if (tracks.isEmpty()) {
+                Box(Modifier.fillMaxSize(), Alignment.Center) {
+                    if (tracksLoading) {
+                        CircularProgressIndicator(color = RadioGreen,
+                            modifier = Modifier.size(32.dp), strokeWidth = 2.dp)
+                    } else {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(horizontal = 16.dp)) {
+                            Text(tracksError ?: "Kunne ikke hente spilleliste",
+                                color = Color(0xFFFF6B6B).copy(alpha = 0.85f),
+                                fontSize = 12.sp, textAlign = TextAlign.Center)
+                            Spacer(Modifier.height(12.dp))
+                            TextButton(onClick = { spotify.fetchPlaylistTracks() }) {
+                                Text("Prøv igjen", color = RadioGreen, fontSize = 12.sp)
                             }
                         }
-                    } else {
-                        // Track list
-                        if (tracks.isEmpty()) {
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (tracksLoading) {
-                                    CircularProgressIndicator(
-                                        color = RadioGreen,
-                                        modifier = Modifier.size(32.dp),
-                                        strokeWidth = 2.dp
-                                    )
-                                } else {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier.padding(horizontal = 16.dp)
-                                    ) {
-                                        Text(
-                                            tracksError ?: "Kunne ikke hente spilleliste",
-                                            color = Color(0xFFFF6B6B).copy(alpha = 0.85f),
-                                            fontSize = 12.sp,
-                                            textAlign = TextAlign.Center
-                                        )
-                                        Spacer(Modifier.height(12.dp))
-                                        TextButton(onClick = { spotify.fetchPlaylistTracks() }) {
-                                            Text("Prøv igjen", color = RadioGreen, fontSize = 12.sp)
-                                        }
-                                    }
-                                }
+                    }
+                }
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(vertical = 8.dp)) {
+                    itemsIndexed(tracks) { index, track ->
+                        val isActive = track.uri == currentTrack?.uri
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { spotify.playTrack(track.uri); onClose() }
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(Modifier.width(28.dp), Alignment.Center) {
+                                if (isActive)
+                                    Icon(Icons.Default.PlayArrow, null, tint = RadioGreen,
+                                        modifier = Modifier.size(16.dp))
+                                else
+                                    Text("${index + 1}", fontSize = 11.sp,
+                                        color = RadioGreen.copy(alpha = 0.4f))
                             }
-                        } else {
-                            LazyColumn(
-                                modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(vertical = 8.dp)
-                            ) {
-                                itemsIndexed(tracks) { index, track ->
-                                    val isActive = track.uri == currentTrack?.uri
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable {
-                                                spotify.playTrack(track.uri)
-                                                flyoutOpen = false
-                                            }
-                                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Box(
-                                            modifier = Modifier.width(28.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            if (isActive) {
-                                                Icon(
-                                                    Icons.Default.PlayArrow,
-                                                    contentDescription = null,
-                                                    tint = RadioGreen,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            } else {
-                                                Text(
-                                                    "${index + 1}",
-                                                    fontSize = 11.sp,
-                                                    color = RadioGreen.copy(alpha = 0.4f)
-                                                )
-                                            }
-                                        }
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                track.title,
-                                                fontSize = 13.sp,
-                                                color = if (isActive) RadioGreen else Color.White.copy(alpha = 0.9f),
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
-                                            )
-                                            if (track.artist.isNotEmpty()) {
-                                                Text(
-                                                    track.artist,
-                                                    fontSize = 11.sp,
-                                                    color = Color.White.copy(alpha = 0.45f),
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(track.title, fontSize = 13.sp,
+                                    color = if (isActive) RadioGreen else Color.White.copy(alpha = 0.9f),
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal)
+                                if (track.artist.isNotEmpty())
+                                    Text(track.artist, fontSize = 11.sp,
+                                        color = Color.White.copy(alpha = 0.45f),
+                                        maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
