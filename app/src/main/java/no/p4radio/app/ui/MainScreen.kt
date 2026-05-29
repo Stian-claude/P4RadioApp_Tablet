@@ -28,12 +28,10 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -105,84 +103,59 @@ fun MainScreen(viewModel: RadioViewModel) {
         }
     }
 
-    val config = LocalConfiguration.current
-
-    // Bruk SKJERM-dimensjoner (ikke vindu) for å avgjøre om ENHETEN er i landscape.
-    // config.orientation i multi-window reflekterer VINDUETS orientering, ikke enhetens —
-    // en smal split-screen-rute rapporteres som portrait selv om nettbrettet er landscape.
-    // config.screenWidthDp / screenHeightDp gir alltid FULL skjerm og er trygt å bruke her.
-    val isLandscape = config.screenWidthDp > config.screenHeightDp
-
-    var prevLandscape by rememberSaveable { mutableStateOf(isLandscape) }
-    LaunchedEffect(isLandscape) {
-        if (!isLandscape && prevLandscape && viewModel.appMode.value == AppMode.SPOTIFY) {
-            viewModel.spotifyController.pauseIfPlaying()
-        }
-        prevLandscape = isLandscape
-    }
-
-    // BoxWithConstraints gir FAKTISK vindubredde — korrekt i split-screen / multi-window.
+    // Tablet-versjon: vis alltid landscape-UI.
+    // Orienterings-APIer (config.orientation, config.screenWidthDp) er upålitelige i
+    // multi-window — de reflekterer vinduets mål, ikke enhetens fysiske orientering.
+    // BoxWithConstraints.maxWidth gir den eneste pålitelige vindubredden.
+    // Compact-modus trigges utelukkende av vindubredde < 500 dp.
     BoxWithConstraints(modifier = Modifier.fillMaxSize().background(Color(0xFF0D0D0D))) {
-        // Reell tilgjengelig bredde for denne vindu-ruten
-        val screenWidthDp = maxWidth.value.toInt()
+        val windowWidthDp = maxWidth.value.toInt()
+        val isCompact     = windowWidthDp < 500
 
-        // Compact = enheten er landscape AND vinduet er for smalt for sidemenyer
-        val isCompact = isLandscape && screenWidthDp < 500
-
-        if (isLandscape) {
-
-            // ── Content ───────────────────────────────────────────────────────
-            when (appMode) {
-                AppMode.RADIO -> RadioContent(
-                    viewModel, clockTime, dateText,
-                    currentStation?.name ?: "", isPlaying, isBuffering, isFetching, errorMessage,
-                    screenWidthDp = screenWidthDp, isLandscape = true, isCompact = isCompact
-                )
-                AppMode.SPOTIFY -> SpotifyContent(
-                    viewModel, clockTime, dateText,
-                    screenWidthDp = screenWidthDp, isCompact = isCompact
-                )
-            }
-
-            // ── Mode buttons ──────────────────────────────────────────────────
-            if (!isCompact) {
-                // Wide landscape: right-side column
-                Column(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .width(118.dp)
-                        .padding(end = 14.dp)
-                        .align(Alignment.CenterEnd),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    ModeButton("Radio",   appMode == AppMode.RADIO)   { viewModel.setMode(AppMode.RADIO) }
-                    Spacer(Modifier.height(12.dp))
-                    ModeButton("Spotify", appMode == AppMode.SPOTIFY) { viewModel.setMode(AppMode.SPOTIFY) }
-                }
-            } else {
-                // Compact landscape: bottom bar
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(50.dp)
-                        .background(Color(0xFF0A0A0A))
-                        .align(Alignment.BottomCenter)
-                        .padding(horizontal = 20.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    CompactModeButton("Radio",   appMode == AppMode.RADIO)   { viewModel.setMode(AppMode.RADIO) }
-                    CompactModeButton("Spotify", appMode == AppMode.SPOTIFY) { viewModel.setMode(AppMode.SPOTIFY) }
-                }
-            }
-        } else {
-            // Portrait
-            RadioContent(
+        // ── Content ───────────────────────────────────────────────────────────
+        when (appMode) {
+            AppMode.RADIO -> RadioContent(
                 viewModel, clockTime, dateText,
                 currentStation?.name ?: "", isPlaying, isBuffering, isFetching, errorMessage,
-                screenWidthDp = screenWidthDp, isLandscape = false, isCompact = false
+                screenWidthDp = windowWidthDp, isLandscape = true, isCompact = isCompact
             )
+            AppMode.SPOTIFY -> SpotifyContent(
+                viewModel, clockTime, dateText,
+                screenWidthDp = windowWidthDp, isCompact = isCompact
+            )
+        }
+
+        // ── Mode buttons ──────────────────────────────────────────────────────
+        if (!isCompact) {
+            // Wide (≥ 500 dp): knapper til høyre
+            Column(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(118.dp)
+                    .padding(end = 14.dp)
+                    .align(Alignment.CenterEnd),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                ModeButton("Radio",   appMode == AppMode.RADIO)   { viewModel.setMode(AppMode.RADIO) }
+                Spacer(Modifier.height(12.dp))
+                ModeButton("Spotify", appMode == AppMode.SPOTIFY) { viewModel.setMode(AppMode.SPOTIFY) }
+            }
+        } else {
+            // Compact (< 500 dp): knapper nederst
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+                    .background(Color(0xFF0A0A0A))
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CompactModeButton("Radio",   appMode == AppMode.RADIO)   { viewModel.setMode(AppMode.RADIO) }
+                CompactModeButton("Spotify", appMode == AppMode.SPOTIFY) { viewModel.setMode(AppMode.SPOTIFY) }
+            }
         }
     }
 }
