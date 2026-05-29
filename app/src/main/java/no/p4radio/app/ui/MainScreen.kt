@@ -227,6 +227,7 @@ fun RadioContent(
             Text(clockTime, fontSize = clkSp.sp, fontFamily = RadioClockFont,
                 color = RadioGreen, letterSpacing = 4.sp)
             Text(dateText, fontSize = datFSp.sp, color = RadioGreen.copy(alpha = 0.65f))
+            Spacer(Modifier.weight(1f))
             PersonalMessage(screenWidthDp)
             Spacer(Modifier.weight(1f))
             RadioControls(viewModel, currentStation, isPlaying, isBuffering, isFetching,
@@ -242,20 +243,21 @@ fun RadioContent(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(clockTime, fontSize = clkSp.sp, fontFamily = RadioClockFont,
                 color = RadioGreen, letterSpacing = 4.sp)
             Text(dateText, fontSize = datFSp.sp, color = RadioGreen.copy(alpha = 0.65f))
+            Spacer(Modifier.weight(1f))
             PersonalMessage(screenWidthDp)
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.weight(1f))
             RadioControls(viewModel, currentStation, isPlaying, isBuffering, isFetching,
                 staSp, playSz, skipSz, icoPlay, icoSkip)
             errorMessage?.let { msg ->
                 Spacer(Modifier.height(16.dp))
                 ErrorBanner(msg) { viewModel.clearError() }
             }
+            Spacer(Modifier.height(24.dp))
         }
     }
 }
@@ -390,8 +392,8 @@ fun SpotifyContent(
     // Content padding
     val startPad  = if (isCompact) 12.dp else 60.dp
     val endPad    = if (isCompact) 12.dp else 118.dp
-    // Reserve plass til flyout-tab øverst i compact-modus
-    val topPad    = if (isCompact) 40.dp else 12.dp
+    // Reserve plass til flyout-tab øverst i compact-modus (dobbel knapp = 72dp + 4dp gap)
+    val topPad    = if (isCompact) 76.dp else 12.dp
     val bottomPad = if (isCompact) 58.dp else 12.dp
 
     // Bruk fillMaxSize + ingen ekstra Box-lag som kan fange touch-events
@@ -407,7 +409,6 @@ fun SpotifyContent(
             Text(clockTime, fontSize = clkSp.sp, fontFamily = RadioClockFont,
                 color = RadioGreen, letterSpacing = 4.sp)
             Text(dateText, fontSize = datFSp.sp, color = RadioGreen.copy(alpha = 0.55f))
-            PersonalMessage(screenWidthDp)
 
             when {
                 needsAuth -> {
@@ -443,6 +444,8 @@ fun SpotifyContent(
                     Spacer(Modifier.weight(1f))
                 }
                 else -> {
+                    Spacer(Modifier.weight(1f))
+                    PersonalMessage(screenWidthDp)
                     Spacer(Modifier.weight(1f))
                     currentTrack?.let { track ->
                         Text(track.title, fontSize = trkSp.sp,
@@ -513,24 +516,24 @@ fun SpotifyContent(
                         modifier = Modifier.size(36.dp))
                 }
             } else {
-                // Compact: top-centre tab that hangs down from the top edge
+                // Compact: top-centre tab — dobbel størrelse
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
-                        .height(36.dp).width(140.dp)
-                        .clip(RoundedCornerShape(bottomStart = 14.dp, bottomEnd = 14.dp))
+                        .height(72.dp).width(280.dp)
+                        .clip(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp))
                         .background(DarkGreen)
                         .clickable { flyoutOpen = true },
                     contentAlignment = Alignment.Center
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Icon(Icons.Default.QueueMusic, "Spilleliste", tint = RadioGreen,
-                            modifier = Modifier.size(18.dp))
-                        Text("Spilleliste", fontSize = 12.sp, color = RadioGreen,
+                            modifier = Modifier.size(36.dp))
+                        Text("Spilleliste", fontSize = 24.sp, color = RadioGreen,
                             fontWeight = FontWeight.SemiBold)
                         Icon(Icons.Default.ExpandMore, null,
-                            tint = RadioGreen.copy(alpha = 0.7f), modifier = Modifier.size(14.dp))
+                            tint = RadioGreen.copy(alpha = 0.7f), modifier = Modifier.size(28.dp))
                     }
                 }
             }

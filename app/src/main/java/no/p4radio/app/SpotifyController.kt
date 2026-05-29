@@ -643,42 +643,24 @@ class SpotifyController {
         }
     }
 
-    fun skipNext() {
-        val remote = appRemote
-        if (remote?.isConnected == true) {
-            remote.playerApi.skipNext()
-                .setErrorCallback { scope.launch { skipViaWebApi(next = true) } }
-            return
-        }
-        scope.launch { skipViaWebApi(next = true) }
-    }
-
-    fun skipPrevious() {
-        val remote = appRemote
-        if (remote?.isConnected == true) {
-            remote.playerApi.skipPrevious()
-                .setErrorCallback { scope.launch { skipViaWebApi(next = false) } }
-            return
-        }
-        scope.launch { skipViaWebApi(next = false) }
-    }
+    // Skip via Web API direkte — App Remote sin skipNext/skipPrevious
+    // mister spilleliste-konteksten på nettbrett og stopper avspillingen.
+    fun skipNext()     { scope.launch { skipViaWebApi(next = true) } }
+    fun skipPrevious() { scope.launch { skipViaWebApi(next = false) } }
 
     private suspend fun skipViaWebApi(next: Boolean) {
         try {
             ensureUserToken()
             val token    = accessToken ?: return
-            val deviceId = findDeviceId(token)
             val endpoint = if (next) "next" else "previous"
-            val url      = "https://api.spotify.com/v1/me/player/$endpoint" +
-                if (deviceId != null) "?device_id=$deviceId" else ""
             http.newCall(
                 Request.Builder()
-                    .url(url)
+                    .url("https://api.spotify.com/v1/me/player/$endpoint")
                     .post("".toRequestBody("application/json".toMediaType()))
                     .header("Authorization", "Bearer $token")
                     .build()
             ).execute()
-        } catch (e: Exception) { Log.w("SpotifyCtrl", "skip failed: $e") }
+        } catch (e: Exception) { Log.w("SpotifyCtrl", "skip $endpoint failed: $e") }
     }
 
     fun playTrack(uri: String) {
