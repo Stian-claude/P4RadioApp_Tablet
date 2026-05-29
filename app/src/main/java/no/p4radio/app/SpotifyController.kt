@@ -755,10 +755,14 @@ class SpotifyController {
     fun resumePlayback() {
         val remote = appRemote
         if (remote?.isConnected == true) {
-            // Bruk alltid spilleliste-kontekst (ikke resume/enkeltspor) for at skip skal fungere
-            scope.launch { playPlaylistFrom(lastKnownTrackUri) }
+            // App Remote er koblet til — konteksten (spillelisten) er bevart fra pause.
+            // Bruk resume() synkront, IKKE async playPlaylistFrom() som kan race med skip.
+            if (lastKnownTrackUri != null) remote.playerApi.resume()
+            else remote.playerApi.play(_currentPlaylistUri.value)
             return
         }
+        // App Remote er frakoblet (Samsung kuttet tilkoblingen under radiobytte) →
+        // reconnect. settle() bruker playPlaylistFrom() for korrekt spilleliste-kontekst.
         val ctx = contextRef?.get() ?: run { _needsAuth.value = true; return }
         _connecting.value = true
         connectAppRemote(ctx)
