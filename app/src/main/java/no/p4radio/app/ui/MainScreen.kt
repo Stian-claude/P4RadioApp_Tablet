@@ -1,6 +1,5 @@
 package no.p4radio.app.ui
 
-import android.content.res.Configuration
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -106,8 +105,13 @@ fun MainScreen(viewModel: RadioViewModel) {
         }
     }
 
-    val config      = LocalConfiguration.current
-    val isLandscape = config.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val config = LocalConfiguration.current
+
+    // Bruk SKJERM-dimensjoner (ikke vindu) for å avgjøre om ENHETEN er i landscape.
+    // config.orientation i multi-window reflekterer VINDUETS orientering, ikke enhetens —
+    // en smal split-screen-rute rapporteres som portrait selv om nettbrettet er landscape.
+    // config.screenWidthDp / screenHeightDp gir alltid FULL skjerm og er trygt å bruke her.
+    val isLandscape = config.screenWidthDp > config.screenHeightDp
 
     var prevLandscape by rememberSaveable { mutableStateOf(isLandscape) }
     LaunchedEffect(isLandscape) {
@@ -117,13 +121,12 @@ fun MainScreen(viewModel: RadioViewModel) {
         prevLandscape = isLandscape
     }
 
-    // BoxWithConstraints gir FAKTISK vindubredde — LocalConfiguration gir full skjermbredde
-    // på Samsung-nettbrett i split-screen (OneUI-bug), så vi bruker maxWidth her.
+    // BoxWithConstraints gir FAKTISK vindubredde — korrekt i split-screen / multi-window.
     BoxWithConstraints(modifier = Modifier.fillMaxSize().background(Color(0xFF0D0D0D))) {
-        // Reell tilgjengelig bredde uavhengig av split-screen / multi-window
+        // Reell tilgjengelig bredde for denne vindu-ruten
         val screenWidthDp = maxWidth.value.toInt()
 
-        // Compact = landscape AND for smal til sidemenyer (split-screen el. liten rute)
+        // Compact = enheten er landscape AND vinduet er for smalt for sidemenyer
         val isCompact = isLandscape && screenWidthDp < 500
 
         if (isLandscape) {
