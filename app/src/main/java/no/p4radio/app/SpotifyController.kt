@@ -147,7 +147,13 @@ class SpotifyController {
                 _connecting.value = false
                 _needsAuth.value  = false
                 _error.value      = null
-                remote.playerApi.play(_currentPlaylistUri.value)
+                remote.playerApi.getPlayerState().setResultCallback { state ->
+                    when {
+                        state.track != null && !state.isPaused -> { /* already playing — preserve context */ }
+                        state.track != null ->                    remote.playerApi.resume()
+                        else ->                                   remote.playerApi.play(_currentPlaylistUri.value)
+                    }
+                }
                 remote.playerApi.subscribeToPlayerState().setEventCallback { state ->
                     _isPlaying.value = !state.isPaused
                     state.track?.let { t ->
