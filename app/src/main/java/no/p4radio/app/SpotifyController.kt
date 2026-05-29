@@ -147,9 +147,7 @@ class SpotifyController {
                 _connecting.value = false
                 _needsAuth.value  = false
                 _error.value      = null
-                // Alltid start med spilleliste-kontekst — aldri enkeltspor-URI.
-                // Enkeltspor-kontekst via remote.playerApi.play(trackUri) ødelegger skip.
-                scope.launch { playPlaylistFrom(lastKnownTrackUri) }
+                remote.playerApi.play(_currentPlaylistUri.value)
                 remote.playerApi.subscribeToPlayerState().setEventCallback { state ->
                     _isPlaying.value = !state.isPaused
                     state.track?.let { t ->
