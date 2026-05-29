@@ -147,7 +147,45 @@ class SpotifyController {
                 _connecting.value = false
                 _needsAuth.value  = false
                 _error.value      = null
-                remote.playerApi.resume()
+                scope.launch {
+                    try {
+                        ensureUserToken()
+                        val token = accessToken
+                        if (token != null) {
+                            val playerResp = http.newCall(
+                                Request.Builder()
+                                    .url("https://api.spotify.com/v1/me/player")
+                                    .header("Authorization", "Bearer $token")
+                                    .build()
+                            ).execute()
+                            val hasContext = playerResp.use { r ->
+                                if (r.code != 200) false
+                                else JSONObject(r.body?.string() ?: "{}").optJSONObject("context")?.optString("type") == "playlist"
+                            }
+                            if (hasContext) {
+                                remote.playerApi.resume()
+                            } else {
+                                val deviceId = findDeviceId(token)
+                                val baseUrl = "https://api.spotify.com/v1/me/player/play"
+                                val url = if (deviceId != null) "$baseUrl?device_id=$deviceId" else baseUrl
+                                val body = if (lastKnownTrackUri != null)
+                                    """{"context_uri":"${_currentPlaylistUri.value}","offset":{"uri":"$lastKnownTrackUri"}}"""
+                                else
+                                    """{"context_uri":"${_currentPlaylistUri.value}"}"""
+                                http.newCall(
+                                    Request.Builder().url(url)
+                                        .put(body.toRequestBody("application/json".toMediaType()))
+                                        .header("Authorization", "Bearer $token").build()
+                                ).execute().close()
+                            }
+                        } else {
+                            remote.playerApi.resume()
+                        }
+                    } catch (e: Exception) {
+                        Log.w("SpotifyCtrl", "settle context restore: $e")
+                        remote.playerApi.resume()
+                    }
+                }
                 remote.playerApi.subscribeToPlayerState().setEventCallback { state ->
                     _isPlaying.value = !state.isPaused
                     state.track?.let { t ->
