@@ -106,12 +106,8 @@ fun MainScreen(viewModel: RadioViewModel) {
         }
     }
 
-    val config        = LocalConfiguration.current
-    val isLandscape   = config.orientation == Configuration.ORIENTATION_LANDSCAPE
-    val screenWidthDp = config.screenWidthDp
-
-    // Compact = landscape but too narrow for side buttons (split-screen / small tablet pane)
-    val isCompact = isLandscape && screenWidthDp < 500
+    val config      = LocalConfiguration.current
+    val isLandscape = config.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     var prevLandscape by rememberSaveable { mutableStateOf(isLandscape) }
     LaunchedEffect(isLandscape) {
@@ -121,7 +117,15 @@ fun MainScreen(viewModel: RadioViewModel) {
         prevLandscape = isLandscape
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0D0D0D))) {
+    // BoxWithConstraints gir FAKTISK vindubredde — LocalConfiguration gir full skjermbredde
+    // på Samsung-nettbrett i split-screen (OneUI-bug), så vi bruker maxWidth her.
+    BoxWithConstraints(modifier = Modifier.fillMaxSize().background(Color(0xFF0D0D0D))) {
+        // Reell tilgjengelig bredde uavhengig av split-screen / multi-window
+        val screenWidthDp = maxWidth.value.toInt()
+
+        // Compact = landscape AND for smal til sidemenyer (split-screen el. liten rute)
+        val isCompact = isLandscape && screenWidthDp < 500
+
         if (isLandscape) {
 
             // ── Content ───────────────────────────────────────────────────────
@@ -375,9 +379,11 @@ fun SpotifyContent(
     // Content padding
     val startPad  = if (isCompact) 12.dp else 60.dp
     val endPad    = if (isCompact) 12.dp else 118.dp
-    val topPad    = if (isCompact && showFlyoutButton) 40.dp else 12.dp
+    // Reserve plass til flyout-tab øverst i compact-modus
+    val topPad    = if (isCompact) 40.dp else 12.dp
     val bottomPad = if (isCompact) 58.dp else 12.dp
 
+    // Bruk fillMaxSize + ingen ekstra Box-lag som kan fange touch-events
     Box(modifier = Modifier.fillMaxSize()) {
 
         // ── Main column ───────────────────────────────────────────────────────
