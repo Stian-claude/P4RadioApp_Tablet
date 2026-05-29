@@ -147,12 +147,9 @@ class SpotifyController {
                 _connecting.value = false
                 _needsAuth.value  = false
                 _error.value      = null
-                val startUri = lastKnownTrackUri
-                if (startUri != null) {
-                    remote.playerApi.play(startUri)
-                } else {
-                    remote.playerApi.play(_currentPlaylistUri.value)
-                }
+                // Alltid start med spilleliste-kontekst — aldri enkeltspor-URI.
+                // Enkeltspor-kontekst via remote.playerApi.play(trackUri) ødelegger skip.
+                scope.launch { playPlaylistFrom(lastKnownTrackUri) }
                 remote.playerApi.subscribeToPlayerState().setEventCallback { state ->
                     _isPlaying.value = !state.isPaused
                     state.track?.let { t ->
@@ -278,6 +275,39 @@ class SpotifyController {
                 }
         } else {
             scope.launch { fetchTracksViaWebApi(); _tracksLoading.value = false }
+        }
+    }
+
+    // Spill spilleliste med valgfri offset-sang via Web API.
+    // Bruker context_uri så skip neste/forrige alltid fungerer innen spillelisten.
+    private suspend fun playPlaylistFrom(trackUri: String?) {
+        try {
+            ensureUserToken()
+            val token    = accessToken ?: run {
+                appRemote?.playerApi?.play(_currentPlaylistUri.value)
+                return
+            }
+            val deviceId = findDeviceId(token)
+            val baseUrl  = "https://api.spotify.com/v1/me/player/play"
+            val url      = if (deviceId != null) "$baseUrl?device_id=$deviceId" else baseUrl
+            val bodyStr  = if (trackUri != null)
+                """{"context_uri":"${_currentPlaylistUri.value}","offset":{"uri":"$trackUri"}}"""
+            else
+                """{"context_uri":"${_currentPlaylistUri.value}"}"""
+            val resp = http.newCall(
+                Request.Builder()
+                    .url(url)
+                    .put(bodyStr.toRequestBody("application/json".toMediaType()))
+                    .header("Authorization", "Bearer $token")
+                    .build()
+            ).execute()
+            if (!resp.isSuccessful) {
+                // Fallback: spill spillelisten fra starten
+                appRemote?.playerApi?.play(_currentPlaylistUri.value)
+            }
+        } catch (e: Exception) {
+            Log.w("SpotifyCtrl", "playPlaylistFrom failed: $e")
+            appRemote?.playerApi?.play(_currentPlaylistUri.value)
         }
     }
 
@@ -725,8 +755,8 @@ class SpotifyController {
     fun resumePlayback() {
         val remote = appRemote
         if (remote?.isConnected == true) {
-            if (lastKnownTrackUri != null) remote.playerApi.resume()
-            else remote.playerApi.play(_currentPlaylistUri.value)
+            // Bruk alltid spilleliste-kontekst (ikke resume/enkeltspor) for at skip skal fungere
+            scope.launch { playPlaylistFrom(lastKnownTrackUri) }
             return
         }
         val ctx = contextRef?.get() ?: run { _needsAuth.value = true; return }
