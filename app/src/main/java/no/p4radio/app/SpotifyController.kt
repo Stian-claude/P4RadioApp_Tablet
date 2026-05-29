@@ -672,10 +672,22 @@ class SpotifyController {
     }
 
     fun skipNext() {
+        val remote = appRemote
+        if (remote?.isConnected == true) {
+            remote.playerApi.skipNext()
+                .setErrorCallback { scope.launch { skipViaWebApi(next = true) } }
+            return
+        }
         scope.launch { skipViaWebApi(next = true) }
     }
 
     fun skipPrevious() {
+        val remote = appRemote
+        if (remote?.isConnected == true) {
+            remote.playerApi.skipPrevious()
+                .setErrorCallback { scope.launch { skipViaWebApi(next = false) } }
+            return
+        }
         scope.launch { skipViaWebApi(next = false) }
     }
 
@@ -739,16 +751,8 @@ class SpotifyController {
     }
 
     fun resumePlayback() {
-        // Tving alltid fersk App Remote-tilkobling ved retur til Spotify.
-        // Unngår alle problemer med ustabil/sitter-fast tilstand etter modusbytte.
-        // settle() sørger for spilleliste-kontekst → skip fungerer garantert.
-        appRemote?.let { old ->
-            try { SpotifyAppRemote.disconnect(old) } catch (_: Exception) { }
-        }
         appRemote = null
         val ctx = contextRef?.get() ?: run { _needsAuth.value = true; return }
-        // Kaller connectAppRemote direkte — settle() setter _connected=true og starter
-        // musik med playPlaylistFrom(). Ingen UI-flimmer fordi _connected forblir true.
         connectAppRemote(ctx)
     }
 
