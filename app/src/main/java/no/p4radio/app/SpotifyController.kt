@@ -649,10 +649,10 @@ class SpotifyController {
     fun skipPrevious() { scope.launch { skipViaWebApi(next = false) } }
 
     private suspend fun skipViaWebApi(next: Boolean) {
+        val endpoint = if (next) "next" else "previous"
         try {
             ensureUserToken()
-            val token    = accessToken ?: return
-            val endpoint = if (next) "next" else "previous"
+            val token = accessToken ?: return
             http.newCall(
                 Request.Builder()
                     .url("https://api.spotify.com/v1/me/player/$endpoint")
