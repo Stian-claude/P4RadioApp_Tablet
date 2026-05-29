@@ -672,22 +672,10 @@ class SpotifyController {
     }
 
     fun skipNext() {
-        val remote = appRemote
-        if (remote?.isConnected == true) {
-            remote.playerApi.skipNext()
-                .setErrorCallback { scope.launch { skipViaWebApi(next = true) } }
-            return
-        }
         scope.launch { skipViaWebApi(next = true) }
     }
 
     fun skipPrevious() {
-        val remote = appRemote
-        if (remote?.isConnected == true) {
-            remote.playerApi.skipPrevious()
-                .setErrorCallback { scope.launch { skipViaWebApi(next = false) } }
-            return
-        }
         scope.launch { skipViaWebApi(next = false) }
     }
 
@@ -705,7 +693,7 @@ class SpotifyController {
                     .post("".toRequestBody("application/json".toMediaType()))
                     .header("Authorization", "Bearer $token")
                     .build()
-            ).execute()
+            ).execute().also { it.close() }
             if (resp.code == 404) {
                 // Ingen aktiv enhet registrert ennå — prøv med eksplisitt device_id
                 val deviceId = findDeviceId(token) ?: return
@@ -715,7 +703,7 @@ class SpotifyController {
                         .post("".toRequestBody("application/json".toMediaType()))
                         .header("Authorization", "Bearer $token")
                         .build()
-                ).execute()
+                ).execute().also { it.close() }
             }
         } catch (e: Exception) { Log.w("SpotifyCtrl", "skip $endpoint failed: $e") }
     }
