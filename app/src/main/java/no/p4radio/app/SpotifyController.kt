@@ -645,34 +645,40 @@ class SpotifyController {
 
     fun skipNext() {
         val remote = appRemote
-        if (remote?.isConnected == true) { remote.playerApi.skipNext(); return }
-        scope.launch {
-            try {
-                ensureUserToken()
-                val token = accessToken ?: return@launch
-                http.newCall(Request.Builder()
-                    .url("https://api.spotify.com/v1/me/player/next")
-                    .post("".toRequestBody("application/json".toMediaType()))
-                    .header("Authorization", "Bearer $token")
-                    .build()).execute()
-            } catch (e: Exception) { _error.value = "Feil: ${e.message}" }
+        if (remote?.isConnected == true) {
+            remote.playerApi.skipNext()
+                .setErrorCallback { scope.launch { skipViaWebApi(next = true) } }
+            return
         }
+        scope.launch { skipViaWebApi(next = true) }
     }
 
     fun skipPrevious() {
         val remote = appRemote
-        if (remote?.isConnected == true) { remote.playerApi.skipPrevious(); return }
-        scope.launch {
-            try {
-                ensureUserToken()
-                val token = accessToken ?: return@launch
-                http.newCall(Request.Builder()
-                    .url("https://api.spotify.com/v1/me/player/previous")
+        if (remote?.isConnected == true) {
+            remote.playerApi.skipPrevious()
+                .setErrorCallback { scope.launch { skipViaWebApi(next = false) } }
+            return
+        }
+        scope.launch { skipViaWebApi(next = false) }
+    }
+
+    private suspend fun skipViaWebApi(next: Boolean) {
+        try {
+            ensureUserToken()
+            val token    = accessToken ?: return
+            val deviceId = findDeviceId(token)
+            val endpoint = if (next) "next" else "previous"
+            val url      = "https://api.spotify.com/v1/me/player/$endpoint" +
+                if (deviceId != null) "?device_id=$deviceId" else ""
+            http.newCall(
+                Request.Builder()
+                    .url(url)
                     .post("".toRequestBody("application/json".toMediaType()))
                     .header("Authorization", "Bearer $token")
-                    .build()).execute()
-            } catch (e: Exception) { _error.value = "Feil: ${e.message}" }
-        }
+                    .build()
+            ).execute()
+        } catch (e: Exception) { Log.w("SpotifyCtrl", "skip failed: $e") }
     }
 
     fun playTrack(uri: String) {

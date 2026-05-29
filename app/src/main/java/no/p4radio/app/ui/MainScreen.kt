@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.QueueMusic
@@ -226,6 +227,7 @@ fun RadioContent(
             Text(clockTime, fontSize = clkSp.sp, fontFamily = RadioClockFont,
                 color = RadioGreen, letterSpacing = 4.sp)
             Text(dateText, fontSize = datFSp.sp, color = RadioGreen.copy(alpha = 0.65f))
+            PersonalMessage(screenWidthDp)
             Spacer(Modifier.weight(1f))
             RadioControls(viewModel, currentStation, isPlaying, isBuffering, isFetching,
                 staSp, playSz, skipSz, icoPlay, icoSkip)
@@ -245,8 +247,9 @@ fun RadioContent(
         ) {
             Text(clockTime, fontSize = clkSp.sp, fontFamily = RadioClockFont,
                 color = RadioGreen, letterSpacing = 4.sp)
-            Text(dateText, fontSize = datFSp.sp, color = RadioGreen.copy(alpha = 0.65f),
-                modifier = Modifier.padding(bottom = 32.dp))
+            Text(dateText, fontSize = datFSp.sp, color = RadioGreen.copy(alpha = 0.65f))
+            PersonalMessage(screenWidthDp)
+            Spacer(Modifier.height(24.dp))
             RadioControls(viewModel, currentStation, isPlaying, isBuffering, isFetching,
                 staSp, playSz, skipSz, icoPlay, icoSkip)
             errorMessage?.let { msg ->
@@ -294,6 +297,38 @@ private fun RadioControls(
                     modifier = Modifier.size(iconSkip))
             }
         }
+    }
+}
+
+// ── Personlig hilsen ──────────────────────────────────────────────────────────
+@Composable
+private fun PersonalMessage(screenWidthDp: Int) {
+    val nameSp  = when { screenWidthDp >= 600 -> 20f; screenWidthDp >= 400 -> 16f; else -> 13f }
+    val heartDp = when { screenWidthDp >= 600 -> 28.dp; screenWidthDp >= 400 -> 22.dp; else -> 18.dp }
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
+    ) {
+        Text(
+            "Stian",
+            fontSize    = nameSp.sp,
+            fontFamily  = RadioClockFont,
+            fontWeight  = FontWeight.SemiBold,
+            color       = RadioGreen
+        )
+        Icon(
+            Icons.Default.Favorite,
+            contentDescription = null,
+            tint     = Color(0xFFE53935),
+            modifier = Modifier.size(heartDp).padding(vertical = 2.dp)
+        )
+        Text(
+            "Nataliya",
+            fontSize    = nameSp.sp,
+            fontFamily  = RadioClockFont,
+            fontWeight  = FontWeight.SemiBold,
+            color       = RadioGreen
+        )
     }
 }
 
@@ -372,6 +407,7 @@ fun SpotifyContent(
             Text(clockTime, fontSize = clkSp.sp, fontFamily = RadioClockFont,
                 color = RadioGreen, letterSpacing = 4.sp)
             Text(dateText, fontSize = datFSp.sp, color = RadioGreen.copy(alpha = 0.55f))
+            PersonalMessage(screenWidthDp)
 
             when {
                 needsAuth -> {
